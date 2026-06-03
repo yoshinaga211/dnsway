@@ -16,4 +16,9 @@
 -dontwarn org.slf4j.impl.**
 -dontwarn sun.net.spi.nameservice.**
 -dontwarn org.xbill.DNS.spi.**
+-dontwarn com.sun.jna.**
+-dontwarn javax.naming.**
 -keep class org.xbill.DNS.** { *; }
+
+# R8 compilation mode: don't fail on missing referenced classes
+-ignorewarnings
