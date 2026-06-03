@@ -199,7 +199,7 @@ private fun PinSetupContent(
                             keyboardType = KeyboardType.NumberPassword,
                             imeAction = ImeAction.Done
                         ),
-                        keyboardActions = KeyboardActions(onDone = onConfirm),
+                        keyboardActions = KeyboardActions(onDone = { onConfirm() }),
                         singleLine = true,
                         isError = error != null,
                         supportingText = error?.let { { Text(it, color = MaterialTheme.colorScheme.error) } }
