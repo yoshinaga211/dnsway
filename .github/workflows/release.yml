@@ -68,5 +68,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: Dnsway-*.apk
+          files: |
+            Dnsway-*.apk
+            Dnsway.apk
           generate_release_notes: true
