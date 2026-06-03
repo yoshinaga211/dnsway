@@ -63,6 +63,13 @@ fun HomeScreen(
         }
     }
 
+    // Auto-start VPN on first composition
+    LaunchedEffect(Unit) {
+        if (!isVpnRunning) {
+            requestVpnStart()
+        }
+    }
+
     if (showConsentDialog) {
         AlertDialog(
             onDismissRequest = { showConsentDialog = false },
