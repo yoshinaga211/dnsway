@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Shield icon for Dnsway -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,20L32,32v16c0,14.6 9.4,28.2 22,32c12.6,-3.8 22,-17.4 22,-32V32L54,20z" />
+    <path
+        android:fillColor="#4F6EF7"
+        android:pathData="M54,24L36,34v14c0,12.5 8,24.2 18,27.6c10,-3.4 18,-15.1 18,-27.6V34L54,24z" />
+    <!-- Checkmark -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M46,52l-4,4l8,8l16,-16l-4,-4l-12,12z" />
+</vector>

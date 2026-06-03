@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Dnsway — 家长控制 DNS 过滤</title>
+<style>
+body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:0;padding:0;color:#333;line-height:1.8}
+.hero{background:linear-gradient(135deg,#1a73e8,#0d47a1);color:#fff;padding:60px 20px;text-align:center}
+.hero h1{font-size:36px;margin:0 0 10px}
+.hero p{font-size:18px;opacity:.9;max-width:600px;margin:0 auto}
+.container{max-width:800px;margin:0 auto;padding:40px 20px}
+.features{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:24px;margin:40px 0}
+.feature{background:#f5f7fa;border-radius:12px;padding:24px}
+.feature h3{margin:0 0 8px;color:#1a73e8}
+.download{text-align:center;margin:40px 0}
+.btn{display:inline-block;background:#1a73e8;color:#fff;padding:14px 36px;border-radius:8px;text-decoration:none;font-size:18px;font-weight:600}
+.btn:hover{background:#1557b0}
+.footer{text-align:center;padding:20px;color:#888;font-size:14px}
+a{color:#1a73e8}
+</style>
+</head>
+<body>
+<div class="hero">
+  <h1>Dnsway</h1>
+  <p>开源家长控制 DNS 过滤应用 — 保护孩子远离不良网站</p>
+</div>
+<div class="container">
+  <h2>功能特点</h2>
+  <div class="features">
+    <div class="feature">
+      <h3>🛡️ 成人内容过滤</h3>
+      <p>自动拦截 24 万+ 成人网站，内置黑名单定期更新</p>
+    </div>
+    <div class="feature">
+      <h3>🎮 游戏限制</h3>
+      <p>可开启游戏分类过滤，拦截 3.8 万+ 游戏站点</p>
+    </div>
+    <div class="feature">
+      <h3>🔒 反绕过</h3>
+      <p>阻止 DoH/DoT 加密 DNS 绕过，封锁已知 VPN/代理域名</p>
+    </div>
+    <div class="feature">
+      <h3>📊 使用统计</h3>
+      <p>实时查看 DNS 查询和拦截统计，了解上网情况</p>
+    </div>
+  </div>
+
+  <div class="download">
+    <a class="btn" href="https://github.com/yoshinaga211/dnsway/releases">下载 APK</a>
+    <p style="margin-top:12px;color:#888">前往 GitHub Releases 下载最新版本</p>
+  </div>
+
+  <h2>隐私</h2>
+  <p>Dnsway <strong>不收集任何个人数据</strong>。所有 DNS 查询过滤在设备本地完成，无需注册账号，无需联网权限。</p>
+  <p><a href="privacy_policy.html">查看完整隐私政策 →</a></p>
+
+  <h2>开源</h2>
+  <p>Dnsway 是完全开源的项目，基于 Go + Kotlin 构建。</p>
+  <p><a href="https://github.com/yoshinaga211/dnsway">GitHub 仓库 →</a></p>
+</div>
+<div class="footer">
+  <p>&copy; 2026 Dnsway. All rights reserved.</p>
+</div>
+</body>
+</html>

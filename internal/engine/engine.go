@@ -1,0 +1,1763 @@
+package engine
+
+import (
+	"context"
+	"dnsway-pc/internal/logger"
+	"dnsway-pc/internal/models"
+	"dnsway-pc/internal/repository"
+	"fmt"
+	"math"
+	"strings"
+	"time"
+)
+
+// ProfileState holds per-profile filtering configuration.
+type ProfileState struct {
+	CategoryConfig        map[string]bool
+	Allowlist             map[string]bool
+	Denylist              map[string]bool
+	SafeSearch            bool
+	YouTubeRestricted     bool
+	BypassPrevention      bool
+	PhishingProtection    bool
+	AIThreatDetection     bool
+	CryptoJackingProtection bool
+	SuspectTLDBlocking    bool
+	StorageRegion         string
+}
+
+// Engine is the core DNS filtering decision engine.
+type Engine struct {
+	categoryDB    map[string][]string
+	logger        *logger.DecisionLogger
+	profiles      map[string]*ProfileState
+	timeWindows   []models.TimeWindow
+
+	// Bypass prevention domain list (VPNs, proxies, Tor, public DoH/DoT)
+	bypassDomains map[string]bool
+
+	// Phishing domain list (known phishing / fraud domains)
+	phishingDomains map[string]bool
+
+	// Crypto mining / cryptojacking domain list
+	cryptoMiningDomains map[string]bool
+
+	// Suspect TLDs — high-risk top-level domains frequently used for abuse
+	suspectTLDs map[string]bool
+
+	// forcedAllow — domains that bypass category blocking (P3) but NOT SafeSearch (P5.5).
+	forcedAllow map[string]bool
+
+	// forcedBlockOverride — subdomains under a forcedAllow parent that should still be
+	// subject to category blocking. Used for gaming subdomains on essential platforms
+	// (e.g., wangzhe.qq.com under qq.com) so games can be blocked without breaking QQ/WeChat.
+	forcedBlockOverride map[string]bool
+
+	// Persistence callback for writing query logs to PostgreSQL/file store.
+	persistFn func(profileID, domain string, decision int, reason string, categories []string, latencyUs int, clientIP string) error
+}
+
+func NewEngine() *Engine {
+	e := &Engine{
+		categoryDB: map[string][]string{
+			"doubleclick.net":    {"CAT_008"},
+			"pornhub.com":        {"CAT_001"},
+			"xvideos.com":        {"CAT_001"},
+			"redtube.com":        {"CAT_001"},
+			"youporn.com":        {"CAT_001"},
+			"steamcommunity.com": {"CAT_005"},
+			"roblox.com":         {"CAT_005"},
+			"epicgames.com":      {"CAT_005"},
+			"tiktok.com":         {"CAT_007"},
+			"facebook.com":       {"CAT_007"},
+			"instagram.com":      {"CAT_007"},
+			"twitter.com":        {"CAT_007"},
+			"x.com":              {"CAT_007"},
+			"youtube.com":        {"CAT_006"},
+			"m.youtube.com":      {"CAT_006"},
+			"youtu.be":           {"CAT_006"},
+			"netflix.com":        {"CAT_006"},
+			"bilibili.com":       {"CAT_006"},
+			"badoo.com":          {"CAT_003"},
+			"tinder.com":         {"CAT_003"},
+			"match.com":          {"CAT_003"},
+			"thepiratebay.org":   {"CAT_004"},
+			"1337x.to":           {"CAT_004"},
+			"rarbg.to":           {"CAT_004"},
+		},
+		logger: logger.NewDecisionLogger(),
+		profiles: map[string]*ProfileState{
+			"test": {
+				CategoryConfig: map[string]bool{
+					"CAT_001": true,
+					"CAT_002": true,
+					"CAT_004": true,
+					"CAT_005": true,
+					"CAT_008": true,
+				},
+				Allowlist: map[string]bool{
+					"khanacademy.org": true,
+					"wikipedia.org":   true,
+					"github.com":      true,
+				},
+				Denylist: map[string]bool{},
+				SafeSearch:        true,
+				YouTubeRestricted: true,
+				BypassPrevention:        true,
+				PhishingProtection:      true,
+				AIThreatDetection:       true,
+				CryptoJackingProtection: true,
+				SuspectTLDBlocking:      true,
+			},
+		},
+		cryptoMiningDomains: map[string]bool{
+			"coinhive.com": true, "coin-hive.com": true, "crypto-loot.com": true,
+			"cryptoloot.pro": true, "minero.cc": true, "minemytraffic.com": true,
+			"ppoi.org": true, "cryptojacking.net": true, "jsecoin.com": true,
+			"webmine.pro": true, "webmine.cz": true, "mine.nahnoji.cz": true,
+			"coinpot.co": true, "coinblind.com": true, "coinnebula.com": true,
+			"monerominer.rocks": true, "crypto-webminer.com": true, "authedmine.com": true,
+			"gridcash.net": true, "papoto.com": true, "cryptaloot.pro": true,
+			"freecontent.stream": true, "mining.best": true, "traffic-mining.com": true,
+		},
+		suspectTLDs: map[string]bool{
+			"tk": true, "ml": true, "ga": true, "cf": true, "gq": true,
+			"xyz": true, "top": true, "work": true, "surf": true, "click": true,
+			"review": true, "country": true, "stream": true, "download": true,
+			"racing": true, "science": true, "party": true, "date": true,
+			"loan": true, "win": true, "bid": true, "trade": true, "webcam": true,
+		},
+		phishingDomains: map[string]bool{
+			"paypa1.com": true, "paypalsecure.com": true, "paypal-update.com": true,
+			"appleid-secure.com": true, "apple-verify.com": true, "icloud-find.com": true,
+			"google-verify.com": true, "google-docs-share.com": true, "gmail-verify.com": true,
+			"microsoft-security.com": true, "office365-verify.com": true,
+			"amazon-order-verify.com": true, "amazon-package.com": true,
+			"netflix-verify.com": true, "netflix-update.com": true,
+			"bankofamerica-secure.com": true, "chase-verify.com": true,
+			"wellsfargo-alert.com": true, "citi-update.com": true,
+			"dropbox-share.com": true, "dhl-package.com": true, "fedex-tracking.net": true,
+			"instagram-verify.com": true, "facebook-security.com": true,
+			"whatsapp-verify.com": true, "telegram-secure.com": true,
+			"crypto-airdrop.com": true, "metamask-verify.com": true, "phantom-wallet.com": true,
+		},
+		bypassDomains: map[string]bool{
+			// VPN/Proxy/Tor
+			"nordvpn.com": true, "expressvpn.com": true, "surfshark.com": true,
+			"protonvpn.com": true, "windscribe.com": true, "hotspotshield.com": true,
+			"tunnelbear.com": true, "vpnunlimited.com": true, "ipvanish.com": true,
+			"hide.me": true, "kproxy.com": true, "proxysite.com": true,
+			"hideproxy.me": true, "filterbypass.me": true,
+			"torproject.org": true, "tor2web.org": true, "onion.cab": true,
+			"v2ray.com": true, "v2fly.org": true, "shadowsocks.org": true,
+			// Chrome-specific DoH (Chrome hardcodes these for auto-discovery)
+			// Chrome canary domain: if it resolves, Chrome enables its own DoH
+			"use-application-dns.net": true,
+			"chrome.cloudflare-dns.com": true,
+			"chrome.dns.google": true,
+			"chrome.dns.google.com": true,
+			// Google DNS / DoH
+			"dns.google": true, "dns.google.com": true,
+			"8888.google": true, "8.8.8.8": true, "8.8.4.4": true,
+			"dns64.dns.google": true,
+			// Cloudflare
+			"cloudflare-dns.com": true, "one.one.one.one": true, "1.1.1.1": true, "1.0.0.1": true,
+			// Quad9
+			"dns.quad9.net": true, "9.9.9.9": true, "149.112.112.112": true,
+			// OpenDNS
+			"doh.opendns.com": true, "dns.opendns.com": true,
+			"familyshield.opendns.com": true, "doh.familyshield.opendns.com": true,
+			// AdGuard
+			"dns.adguard.com": true, "doh.adguard.com": true,
+			"family.adguard-dns.com": true, "unfiltered.adguard-dns.com": true,
+			// CleanBrowsing
+			"doh.cleanbrowsing.org": true, "family.cleanbrowsing.org": true,
+			"adult.cleanbrowsing.org": true,
+			// Apple
+			"doh.dns.apple.com": true,
+			// NextDNS
+			"dns.nextdns.io": true,
+			// Comodo
+			"dns.comodo.com": true, "doh.comodo.com": true,
+			// Other DoH providers
+			"doh.sb": true, "doh.li": true, "doh.dns.sb": true,
+			"resolver-eu.lelux.fi": true, "dns.aaflalo.me": true,
+			"dns.digitale-gesellschaft.ch": true,
+			"doh.powerdns.org": true, "doh.libredns.gr": true,
+			"doh.dnswarden.com": true, "dns.twnic.tw": true,
+			// Chinese DoH (国内)
+			"dns.alidns.com": true, "doh.pub": true, "dns.qq.com": true,
+			"doh.360.cn": true, "doh.360safe.com": true, "dns.ipip.net": true,
+			"doh.dnspod.com": true, "dns.pub": true, "dns.tencent.com": true,
+			// HTTPDNS Endpoints (China) — used by Chinese apps to bypass system DNS
+			// Tencent HTTPDNS / MSDK (used by LOL, Honor of Kings, CF, DNF games)
+			"httpdns.qq.com": true,
+			"httpdns.tencent.com": true,
+			"httpdns.weixin.qq.com": true,
+			"httpdns.dnspod.com": true,
+			"httpdns.api.qq.com": true,
+			"httpdns.cdn.qq.com": true,
+			"httpdns.sj.qq.com": true,
+			"3g.dns.qq.com": true,
+			"resolver.msg.qq.com": true,
+			"resolver.msg.jzapp.qq.com": true,
+			"resolver.public.qq.com": true,
+			"trunk.ieservice.qq.com": true,
+			"dns.sec.qq.com": true,
+			"httpproxy.qq.com": true,
+			"apiproxy.qq.com": true,
+			"tencenthttpdns.com": true,
+			"pingma.qq.com": true,
+			"othstr.qq.com": true,
+			"msdk.qq.com": true,
+			"msdktest.qq.com": true,
+			// Alibaba Cloud HTTPDNS
+			"httpdns.alicdn.com": true,
+			"httpdns.m.taobao.com": true,
+			"httpdns.m.tencent.com": true,
+			"httpdns.baidu.com": true,
+			"httpdns.baidu.cn": true,
+			// Xiaomi HTTPDNS
+			"httpdns.mi.com": true,
+			"httpdns.xiaomi.com": true,
+			// Huawei HTTPDNS
+			"httpdns.huawei.com": true,
+			"httpdns.cloud.huawei.com": true,
+			// 360 HTTPDNS
+			"httpdns.360.cn": true,
+			"httpdns.360safe.com": true,
+			// Browser DoH Secure DNS Discovery
+			"use-eff.org": true,
+			"edge-dns.microsoft.com": true,
+			"doh.dns.msn.com": true,
+			"doh.microsoft.com": true,
+			"doh.opera.com": true,
+			"dns.opera.com": true,
+			"doh.brave.com": true,
+			"dns.brave.com": true,
+			"doh.samsung.com": true,
+			"dns.samsung.com": true,
+			"doh.vivaldi.com": true,
+			"dns.vivaldi.com": true,
+			// Chinese Manufacturer Connectivity Checks
+			"connectivitycheck.platform.hihonor.com": true,
+			"connectivitycheck.platform.huawei.com": true,
+			"connection.oppomobile.com": true,
+			"connectivitycheck.xiaomi.com": true,
+			"connect.rom.miui.com": true,
+			"connectivitycheck.oppo.com": true,
+			"connectivitycheck.vivo.com": true,
+			"connectivitycheck.samsung.com.cn": true,
+			// Captive portal detection (OS connectivity checks)
+			"gsp1.apple.com": true,
+			"connectivitycheck.gstatic.com": true,
+			"connectivitycheck.android.com": true,
+			"clients3.google.com": true, "www.msftncsi.com": true,
+			"msftncsi.com": true, "nmcheck.gnome.org": true,
+			"detectportal.firefox.com": true,
+			// DoT providers (DNS-over-TLS)
+			"dot.quad9.net": true, "dot.cleanbrowsing.org": true,
+			"dot.adguard.com": true, "dns.sb": true,
+			// DNS-over-HTTPS additional endpoints
+			"mozilla.cloudflare-dns.com": true,
+			"firefox-dns.cloudflare-dns.com": true,
+			// Well-known public resolver IPs (also blocked)
+			"208.67.222.222": true, "208.67.220.220": true,
+			"185.228.168.9": true, "185.228.169.9": true,
+			"76.76.2.2": true, "76.76.10.2": true,
+			"94.140.14.14": true, "94.140.15.15": true,
+		},
+		forcedBlockOverride: map[string]bool{
+			// QQ gaming subdomains — block without breaking core QQ/WeChat
+			"game.qq.com":        true,
+			"dnf.qq.com":         true,
+			"lol.qq.com":         true,
+			"cf.qq.com":          true,
+			"wangzhe.qq.com":     true,
+			"pvp.qq.com":         true,
+			"pubgm.qq.com":       true,
+			"speed.qq.com":       true,
+			"naruto.qq.com":      true,
+			"diy.qq.com":         true,
+			"games.qq.com":       true,
+			"gamecenter.qq.com":  true,
+			"egame.qq.com":       true,
+			"huayang.qq.com":     true,
+			"yx.qq.com":          true,
+		},
+		forcedAllow: map[string]bool{
+			// Google — all google.com / googleapis.com / gstatic.com subdomains
+			"google.com": true, "googleapis.com": true, "gstatic.com": true,
+			"googlevideo.com": true, "youtube.com": true, "ytimg.com": true,
+			"googleusercontent.com": true, "googlezip.net": true,
+			"google-analytics.com": true, "googletagmanager.com": true,
+			"googleadservices.com": true, "doubleclick.net": true,
+			"google.co.jp": true, "google.co.kr": true, "google.com.hk": true,
+			"google.com.tw": true, "google.com.sg": true, "google.co.in": true,
+			"google.co.uk": true, "google.de": true, "google.fr": true,
+			"google.ca": true, "google.com.au": true,
+			// Microsoft / Azure
+			"microsoft.com": true, "msftncsi.com": true, "azure.com": true,
+			"azureedge.net": true, "azurefd.net": true, "windows.net": true,
+			"office.net": true, "office.com": true, "live.com": true,
+			"msn.com": true, "bing.com": true, "microsoftonline.com": true,
+			// Apple / iCloud
+			"apple.com": true, "icloud.com": true, "icloud-content.com": true,
+			"apple-dns.net": true, "aaplimg.com": true, "apple-cloudkit.com": true,
+			// Cloudflare
+			"cloudflare.com": true, "cloudflareinsights.com": true,
+			"cloudflare.net": true, "cloudflare-dns.com": true,
+			// Amazon AWS / CloudFront
+			"amazon.com": true, "amazonaws.com": true, "cloudfront.net": true,
+			"aws.amazon.com": true, "amazon-adsystem.com": true,
+			// Meta / Facebook / Instagram
+			"facebook.com": true, "fbcdn.net": true, "instagram.com": true,
+			"whatsapp.com": true, "messenger.com": true,
+			// CDN / Front-end
+			"jsdelivr.net": true, "unpkg.com": true, "cdnjs.cloudflare.com": true,
+			"bootstrapcdn.com": true, "fontawesome.com": true,
+			"googlefonts.net": true, "fonts.googleapis.com": true,
+			"fonts.gstatic.com": true, "jquery.com": true,
+			// OpenAI / AI services
+			"openai.com": true, "chatgpt.com": true, "oaistatic.com": true,
+			"oaiusercontent.com": true, "deepseek.com": true,
+			// Social / comms platforms
+			"twitter.com": true, "x.com": true, "twimg.com": true,
+			"linkedin.com": true, "discord.com": true, "discordapp.net": true,
+			"telegram.org": true, "t.me": true, "whatsapp.net": true,
+			"weixin.qq.com": true, "qq.com": true,
+			// E-commerce / payment
+			"taobao.com": true, "tmall.com": true, "jd.com": true,
+			"aliexpress.com": true, "paypal.com": true, "stripe.com": true,
+			// Developer platforms
+			"github.com": true, "githubusercontent.com": true, "gitlab.com": true,
+			"bitbucket.org": true, "docker.com": true, "docker.io": true,
+			"npmjs.org": true, "pypi.org": true, "nuget.org": true,
+			// OS / update infrastructure
+			"ess.apple.com": true, "g.aaplimg.com": true,
+			"windowsupdate.com": true, "update.microsoft.com": true,
+			"softwareupdate.vmware.com": true,
+			// Android connectivity
+			"connectivitycheck.gstatic.com": true,
+			"connectivitycheck.android.com": true,
+			"clients3.google.com": true, "clients4.google.com": true,
+			"android.clients.google.com": true,
+			// Misc essential
+			"adobe.com": true, "adobedtm.com": true, "adobeio.com": true,
+			"salesforce.com": true, "hubspot.com": true, "zendesk.com": true,
+			"sentry.io": true, "datadoghq.com": true, "newrelic.com": true,
+			"fastly.net": true, "akamaihd.net": true, "akamaiedge.net": true,
+			"edgesuite.net": true, "keycdn.com": true, "stackpathcdn.com": true,
+		},
+		timeWindows: []models.TimeWindow{
+			{
+				ID:         "tw_default",
+				ProfileID:  "test",
+				DaysOfWeek: []int{0, 6},
+				StartTime:  "14:00",
+				EndTime:    "18:00",
+				Timezone:   "Asia/Shanghai",
+				Targets:    []models.FilterTarget{{Type: models.TargetCategory, Value: "CAT_005"}},
+			},
+		},
+	}
+	return e
+}
+
+
+// getProfile returns the profile state, creating it if needed.
+func (e *Engine) getProfile(profileID string) *ProfileState {
+	if p, ok := e.profiles[profileID]; ok {
+		return p
+	}
+	p := &ProfileState{
+		CategoryConfig: map[string]bool{},
+		Allowlist:      map[string]bool{},
+		Denylist:       map[string]bool{},
+	}
+	e.profiles[profileID] = p
+	return p
+}
+
+// ================================================================
+// Dynamic Configuration APIs (per-profile)
+// ================================================================
+
+func (e *Engine) UpdateUserConfig(profileID, catID string, blocked bool) {
+	p := e.getProfile(profileID)
+	if p.CategoryConfig == nil {
+		p.CategoryConfig = make(map[string]bool)
+	}
+	p.CategoryConfig[catID] = blocked
+}
+
+func (e *Engine) AddToAllowlist(profileID, domain string) {
+	p := e.getProfile(profileID)
+	if p.Allowlist == nil {
+		p.Allowlist = make(map[string]bool)
+	}
+	p.Allowlist[domain] = true
+}
+
+func (e *Engine) RemoveFromAllowlist(profileID, domain string) {
+	if p, ok := e.profiles[profileID]; ok {
+		delete(p.Allowlist, domain)
+	}
+}
+
+func (e *Engine) AddToDenylist(profileID, domain string) {
+	p := e.getProfile(profileID)
+	if p.Denylist == nil {
+		p.Denylist = make(map[string]bool)
+	}
+	p.Denylist[domain] = true
+}
+
+func (e *Engine) RemoveFromDenylist(profileID, domain string) {
+	if p, ok := e.profiles[profileID]; ok {
+		delete(p.Denylist, domain)
+	}
+}
+
+func (e *Engine) SetSafeSearch(profileID string, enabled bool) {
+	e.getProfile(profileID).SafeSearch = enabled
+}
+
+func (e *Engine) SetYouTubeRestricted(profileID string, enabled bool) {
+	e.getProfile(profileID).YouTubeRestricted = enabled
+}
+
+func (e *Engine) SetBypassPrevention(profileID string, enabled bool) {
+	e.getProfile(profileID).BypassPrevention = enabled
+}
+
+func (e *Engine) SetPhishingProtection(profileID string, enabled bool) {
+	e.getProfile(profileID).PhishingProtection = enabled
+}
+
+func (e *Engine) SetAIThreatDetection(profileID string, enabled bool) {
+	e.getProfile(profileID).AIThreatDetection = enabled
+}
+
+func (e *Engine) SetCryptoJackingProtection(profileID string, enabled bool) {
+	e.getProfile(profileID).CryptoJackingProtection = enabled
+}
+
+func (e *Engine) SetSuspectTLDBlocking(profileID string, enabled bool) {
+	e.getProfile(profileID).SuspectTLDBlocking = enabled
+}
+
+func (e *Engine) SetStorageRegion(profileID, region string) {
+	e.getProfile(profileID).StorageRegion = region
+}
+
+func (e *Engine) SetPersistenceCallback(fn func(profileID, domain string, decision int, reason string, categories []string, latencyUs int, clientIP string) error) {
+	e.persistFn = fn
+}
+
+func (e *Engine) ReloadTimeWindows(profileID string, repo *repository.PostgresRepository) {
+	list, err := repo.GetTimeWindows(profileID)
+	if err != nil {
+		return
+	}
+	windows := make([]models.TimeWindow, 0, len(list))
+	for _, tw := range list {
+		w := models.TimeWindow{
+			ID:        fmt.Sprint(tw["id"]),
+			ProfileID: fmt.Sprint(tw["profile_id"]),
+			Name:      fmt.Sprint(tw["name"]),
+			StartTime: fmt.Sprint(tw["start_time"]),
+			EndTime:   fmt.Sprint(tw["end_time"]),
+			Timezone:  fmt.Sprint(tw["timezone"]),
+		}
+		if days, ok := tw["days_of_week"].([]int); ok {
+			w.DaysOfWeek = days
+		}
+		targetType := models.TargetCategory
+		if fmt.Sprint(tw["target_type"]) == "DOMAIN" {
+			targetType = models.TargetDomain
+		}
+		w.Targets = []models.FilterTarget{{Type: targetType, Value: fmt.Sprint(tw["target_value"])}}
+		windows = append(windows, w)
+	}
+	// Replace only windows for this profile; keep others
+	filtered := make([]models.TimeWindow, 0)
+	for _, tw := range e.timeWindows {
+		if tw.ProfileID != profileID {
+			filtered = append(filtered, tw)
+		}
+	}
+	e.timeWindows = append(filtered, windows...)
+}
+
+// ================================================================
+// Query APIs
+// ================================================================
+
+func (e *Engine) GetAllowlist(profileID string) []string {
+	p := e.getProfile(profileID)
+	list := make([]string, 0, len(p.Allowlist))
+	for d := range p.Allowlist {
+		list = append(list, d)
+	}
+	return list
+}
+
+func (e *Engine) GetDecisionHistory() []map[string]interface{} {
+	return e.logger.GetHistory()
+}
+
+func (e *Engine) GetStats() map[string]int {
+	return e.logger.GetTopBlocked()
+}
+
+// ListProfiles returns all known profile IDs.
+func (e *Engine) ListProfiles() []string {
+	ids := make([]string, 0, len(e.profiles))
+	for id := range e.profiles {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// DecideAny checks the domain against the default "test" profile.
+// This applies to unauthenticated DNS queries (no network mapping, no DoH token).
+func (e *Engine) DecideAny(ctx context.Context, domain string, clientIP string) *models.FilterDecision {
+	start := time.Now()
+	profileID := "test"
+	p := e.getProfile(profileID)
+
+	// P0: Universal DoH/VPN/Proxy blocking -- always enforced.
+	if e.isBypassDomain(domain) {
+		return e.makeDecision(domain, models.Block, "P0: Bypass Domain Blocked (Universal)", "", nil, start, clientIP)
+	}
+
+	// P1: Allowlist
+	if e.isAllowlisted(p, domain) {
+		return e.makeDecision(domain, models.Allow, "P1: Allowlist", profileID, nil, start, clientIP)
+	}
+
+	// P0: Bypass prevention
+	if p.BypassPrevention && e.isBypassDomain(domain) {
+		return e.makeDecision(domain, models.Block, "P0: Bypass Prevention", profileID, nil, start, clientIP)
+	}
+
+	// P0.5: Phishing protection
+	if p.PhishingProtection && e.isPhishingDomain(domain) {
+		return e.makeDecision(domain, models.Block, "P0.5: Phishing Protection", profileID, nil, start, clientIP)
+	}
+
+	// P0.6: Crypto jacking protection
+	if p.CryptoJackingProtection && e.isCryptoMiningDomain(domain) {
+		return e.makeDecision(domain, models.Block, "P0.6: Crypto Mining Protection", profileID, nil, start, clientIP)
+	}
+
+	// P0.7: Suspect TLD blocking
+	if p.SuspectTLDBlocking && e.isSuspectTLD(domain) {
+		return e.makeDecision(domain, models.Block, "P0.7: Suspect TLD Blocking", profileID, nil, start, clientIP)
+	}
+
+	// P2: Denylist
+	if e.isDenylisted(p, domain) {
+		return e.makeDecision(domain, models.Block, "P2: Denylist", profileID, nil, start, clientIP)
+	}
+
+	// P3: Category filtering
+	if !e.isForcedAllowed(domain) {
+		cat := e.lookupCategories(domain)
+		if e.isCategoryBlocked(p, cat) {
+			return e.makeDecision(domain, models.Block, "P3: Content Category Blocked", profileID, cat, start, clientIP)
+		}
+	}
+
+	// P5.5: SafeSearch
+	if p.SafeSearch {
+		decision := &models.FilterDecision{Domain: domain, ProfileID: profileID, Timestamp: start}
+		if e.applySafeSearch(p, domain, decision) {
+			decision.Reason = "P5.5: SafeSearch Rewrite"
+			decision.Latency = time.Since(start)
+			e.logger.Log(decision)
+			if e.persistFn != nil {
+				e.persistFn(profileID, domain, int(decision.Decision), decision.Reason, decision.Categories, int(decision.Latency.Microseconds()), decision.ClientIP)
+			}
+			return decision
+		}
+	}
+
+	// P6: Default allow
+	return e.makeDecision(domain, models.Allow, "P6: Default Allow", profileID, nil, start, clientIP)
+}
+
+// makeDecision creates a FilterDecision, logs it, persists it, and returns it.
+func (e *Engine) makeDecision(domain string, decision models.DecisionType, reason, profileID string, categories []string, start time.Time, clientIP string) *models.FilterDecision {
+	d := &models.FilterDecision{
+		Domain:     domain,
+		Decision:   decision,
+		Reason:     reason,
+		ProfileID:  profileID,
+		Categories: categories,
+		Timestamp:  start,
+		Latency:    time.Since(start),
+		ClientIP:   clientIP,
+	}
+	e.logger.Log(d)
+	if e.persistFn != nil {
+		e.persistFn(profileID, domain, int(decision), reason, categories, int(d.Latency.Microseconds()), clientIP)
+	}
+	return d
+}
+
+// ================================================================
+// Main Decision Tree (P0-P6)
+// ================================================================
+
+func (e *Engine) Decide(ctx context.Context, profileID, domain string, clientIP string) *models.FilterDecision {
+	start := time.Now()
+	decision := &models.FilterDecision{
+		Domain:    domain,
+		ProfileID: profileID,
+		Timestamp: start,
+		ClientIP:  clientIP,
+	}
+
+	defer func() {
+		decision.Latency = time.Since(start)
+		e.logger.Log(decision)
+		if e.persistFn != nil {
+			e.persistFn(profileID, domain, int(decision.Decision), decision.Reason, decision.Categories, int(decision.Latency.Microseconds()), clientIP)
+		}
+	}()
+
+	p := e.getProfile(profileID)
+
+		// P0: Universal DoH/VPN/Proxy blocking -- always enforced,
+		// regardless of profile settings. Prevents browsers from
+		// bypassing DNS filtering via Secure DNS / DNS-over-HTTPS.
+		if e.isBypassDomain(domain) {
+			return e.makeDecision(domain, models.Block, "P0: Bypass Domain Blocked (Universal)", "", nil, start, clientIP)
+		}
+	// P0: Bypass prevention
+	if p.BypassPrevention && e.isBypassDomain(domain) {
+		decision.Decision = models.Block
+		decision.Reason = "P0: Bypass Prevention (VPN/Proxy/Tor/DOH blocked)"
+		return decision
+	}
+
+	// P0.5: Phishing protection
+	if p.PhishingProtection && e.isPhishingDomain(domain) {
+		decision.Decision = models.Block
+		decision.Reason = "P0.5: Phishing Protection"
+		return decision
+	}
+
+	// P0.6: Crypto jacking protection
+	if p.CryptoJackingProtection && e.isCryptoMiningDomain(domain) {
+		decision.Decision = models.Block
+		decision.Reason = "P0.6: Crypto Mining Protection"
+		return decision
+	}
+
+	// P0.7: Suspect TLD blocking
+	if p.SuspectTLDBlocking && e.isSuspectTLD(domain) {
+		decision.Decision = models.Block
+		decision.Reason = "P0.7: Suspect TLD Blocking"
+		return decision
+	}
+
+	// P1: Allowlist
+	if e.isAllowlisted(p, domain) {
+		decision.Decision = models.Allow
+		decision.Reason = "P1: User Allowlist"
+		return decision
+	}
+
+	// P2: Denylist
+	if e.isDenylisted(p, domain) {
+		decision.Decision = models.Block
+		decision.Reason = "P2: User Denylist"
+		return decision
+	}
+
+	// Lookup categories
+	categories := e.lookupCategories(domain)
+	decision.Categories = categories
+
+	// P3: Category filtering
+	// P3.5: Forced allow — bypass category blocking for essential service domains
+	if !e.isForcedAllowed(domain) && len(categories) > 0 && e.isCategoryBlocked(p, categories) {
+		decision.Decision = models.Block
+		decision.Reason = "P3: Content Category Blocked"
+		return decision
+	}
+
+	// P4: Time window
+	if e.isTimeRestricted(profileID, domain, categories) {
+		decision.Decision = models.Block
+		decision.Reason = "P4: Outside Allowed Time Window"
+		return decision
+	}
+
+	// P5: AI threat detection
+	if p.AIThreatDetection && e.isAIThreat(domain) {
+		decision.Decision = models.Block
+		decision.Reason = "P5: AI Threat Detection (DGA/Algorithmic Domain)"
+		return decision
+	}
+
+	// P5.5: SafeSearch rewriting
+	if e.applySafeSearch(p, domain, decision) {
+		return decision
+	}
+
+	// P6: Default allow
+	decision.Decision = models.Allow
+	decision.Reason = "P6: Default Allow"
+	return decision
+}
+
+// ================================================================
+// Check Methods
+// ================================================================
+
+func (e *Engine) isBypassDomain(domain string) bool {
+	for d := range e.bypassDomains {
+		if domain == d || strings.HasSuffix(domain, "."+d) {
+			return true
+		}
+	}
+	return false
+}
+
+// isForcedAllowed checks if a domain is in the forced-allow list (suffix match).
+// Domains in this list bypass P3 category blocking but NOT P5.5 SafeSearch.
+// forcedBlockOverride subdomains (e.g., qq.com gaming subdomains) are exempted
+// so they remain subject to category filtering.
+func (e *Engine) isForcedAllowed(domain string) bool {
+	// Check override first — if this domain or any of its parent domains
+	// is in forcedBlockOverride, don't force-allow it.
+	for d := range e.forcedBlockOverride {
+		if domain == d || strings.HasSuffix(domain, "."+d) {
+			return false
+		}
+	}
+	for d := range e.forcedAllow {
+		if domain == d || strings.HasSuffix(domain, "."+d) {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) isPhishingDomain(domain string) bool {
+	// Exact and suffix match against known phishing domain list
+	for d := range e.phishingDomains {
+		if domain == d || strings.HasSuffix(domain, "."+d) {
+			return true
+		}
+	}
+	// Heuristic: punycode-based phishing (xn-- prefix for lookalike domains)
+	if strings.Contains(domain, "xn--") {
+		return true
+	}
+	// Heuristic: suspicious subdomain patterns like "paypal.com.fake.tk"
+	parts := strings.Split(domain, ".")
+	if len(parts) >= 4 {
+		// Check for known brand names used as subdomains of suspicious TLDs
+		brands := []string{"paypal", "apple", "google", "microsoft", "amazon",
+			"netflix", "facebook", "instagram", "whatsapp", "telegram", "bankofamerica",
+			"chase", "wellsfargo", "citi", "dropbox", "fedex", "dhl", "metamask"}
+		suspiciousTLDs := map[string]bool{"tk": true, "ml": true, "ga": true, "cf": true, "gq": true, "xyz": true, "top": true, "work": true, "surf": true}
+		for _, brand := range brands {
+			for i, part := range parts {
+				if i < len(parts)-2 && part == brand && suspiciousTLDs[parts[len(parts)-1]] {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func (e *Engine) isCryptoMiningDomain(domain string) bool {
+	for d := range e.cryptoMiningDomains {
+		if domain == d || strings.HasSuffix(domain, "."+d) {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) isSuspectTLD(domain string) bool {
+	parts := strings.Split(domain, ".")
+	if len(parts) == 0 {
+		return false
+	}
+	tld := parts[len(parts)-1]
+	return e.suspectTLDs[tld]
+}
+
+func (e *Engine) isAllowlisted(p *ProfileState, domain string) bool {
+	for ad := range p.Allowlist {
+		if domain == ad || strings.HasSuffix(domain, "."+ad) {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) isDenylisted(p *ProfileState, domain string) bool {
+	for d := range p.Denylist {
+		if domain == d || strings.HasSuffix(domain, "."+d) {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) lookupCategories(domain string) []string {
+	// Fast O(1) exact-match lookup, then parent-domain suffix walk.
+	if cats, ok := e.categoryDB[domain]; ok {
+		return cats
+	}
+	for {
+		dot := strings.IndexByte(domain, '.')
+		if dot < 0 {
+			return nil
+		}
+		domain = domain[dot+1:]
+		if cats, ok := e.categoryDB[domain]; ok {
+			return cats
+		}
+	}
+}
+
+func (e *Engine) isCategoryBlocked(p *ProfileState, cats []string) bool {
+	for _, cat := range cats {
+		if blocked, ok := p.CategoryConfig[cat]; ok && blocked {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) isTimeRestricted(pid, domain string, cats []string) bool {
+	targetedCats := map[string]bool{}
+	for _, tw := range e.timeWindows {
+		for _, t := range tw.Targets {
+			if t.Type == models.TargetCategory {
+				targetedCats[t.Value] = true
+			}
+		}
+	}
+
+	isTargeted := false
+	for _, cat := range cats {
+		if targetedCats[cat] {
+			isTargeted = true
+			break
+		}
+	}
+	if !isTargeted {
+		return false
+	}
+
+	now := time.Now()
+	for _, tw := range e.timeWindows {
+		dayMatched := false
+		for _, day := range tw.DaysOfWeek {
+			if int(now.Weekday()) == day {
+				dayMatched = true
+				break
+			}
+		}
+		if !dayMatched {
+			continue
+		}
+		currentTimeStr := now.Format("15:04")
+		if currentTimeStr >= tw.StartTime && currentTimeStr <= tw.EndTime {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (e *Engine) isAIThreat(domain string) bool {
+	// Strip TLD for analysis
+	dot := strings.LastIndexByte(domain, '.')
+	body := domain
+	if dot != -1 {
+		body = domain[:dot]
+	}
+	if len(body) < 8 {
+		return false
+	}
+
+	// Rule 1: Very long alphanumeric domains without hyphens (>35 chars)
+	if len(domain) > 35 && !strings.Contains(domain, "-") {
+		return true
+	}
+
+	// Rule 2: Shannon entropy — DGA domains have high entropy (>3.5 bits/char)
+	entropy := shannonEntropy(body)
+	if entropy > 3.5 {
+		return true
+	}
+
+	// Rule 3: Vowel/consonant ratio — DGA domains have unusual ratios (<0.2 or >1.5)
+	vowels := 0
+	consonants := 0
+	for _, ch := range strings.ToLower(body) {
+		switch ch {
+		case 'a', 'e', 'i', 'o', 'u':
+			vowels++
+		case 'b', 'c', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'm',
+			'n', 'p', 'q', 'r', 's', 't', 'v', 'w', 'x', 'y', 'z':
+			consonants++
+		}
+	}
+	if consonants > 0 {
+		ratio := float64(vowels) / float64(consonants)
+		if ratio < 0.15 || ratio > 1.6 {
+			return true
+		}
+	}
+
+	// Rule 4: Repeated bigram density — DGA domains often recycle character pairs
+	if len(body) > 12 {
+		bigrams := map[string]int{}
+		for i := 0; i < len(body)-1; i++ {
+			bigrams[body[i:i+2]]++
+		}
+		repeated := 0
+		for _, c := range bigrams {
+			if c > 1 {
+				repeated++
+			}
+		}
+		if float64(repeated)/float64(len(bigrams)) > 0.3 {
+			return true
+		}
+	}
+
+	return false
+}
+
+func shannonEntropy(s string) float64 {
+	freq := map[byte]int{}
+	for i := 0; i < len(s); i++ {
+		freq[s[i]]++
+	}
+	var entropy float64
+	n := float64(len(s))
+	for _, count := range freq {
+		p := float64(count) / n
+		entropy -= p * math.Log2(p)
+	}
+	return entropy
+}
+
+// LoadCategoryDB loads domain categories from the database, replacing the hardcoded
+// categoryDB. If the database is empty, it seeds from built-in domain lists first.
+func (e *Engine) LoadCategoryDB(repo *repository.PostgresRepository) error {
+	entries, err := repo.GetAllDomainCategories()
+	if err != nil {
+		return fmt.Errorf("load domain categories: %w", err)
+	}
+
+	if len(entries) == 0 {
+		// Seed the database from built-in lists on first run for ALL categories
+		allCategories := []string{"CAT_001", "CAT_002", "CAT_003", "CAT_004", "CAT_005", "CAT_006", "CAT_007", "CAT_008"}
+		var batch []repository.DomainCategoryEntry
+		for _, catID := range allCategories {
+			domains := collectDomainsForCategory(catID)
+			for _, d := range domains {
+				batch = append(batch, repository.DomainCategoryEntry{Domain: d, CategoryID: catID, Source: "builtin"})
+			}
+		}
+		if len(batch) > 0 {
+			if err := repo.BulkImportDomainCategories(batch); err != nil {
+				return fmt.Errorf("seed domain categories: %w", err)
+			}
+		}
+		entries, err = repo.GetAllDomainCategories()
+		if err != nil {
+			return fmt.Errorf("reload domain categories: %w", err)
+		}
+	}
+
+	// Build the in-memory categoryDB from DB entries
+	newDB := make(map[string][]string)
+	for _, entry := range entries {
+		newDB[entry.Domain] = append(newDB[entry.Domain], entry.CategoryID)
+	}
+	e.categoryDB = newDB
+	fmt.Printf("Loaded %d domain->category mappings from database\n", len(entries))
+	return nil
+}
+
+// collectGamingDomains returns the built-in list of gaming domains for seeding.
+func collectDomainsForCategory(catID string) []string {
+	switch catID {
+	case "CAT_005":
+		return []string{
+		// ========== Major Platforms & Stores ==========
+		"store.steampowered.com",
+		"steampowered.com",
+		"steamstatic.com",
+		"steamcdn-a.akamaihd.net",
+		"steamcontent.com",
+		"steamgames.com",
+		"steamcommunity.com",    // already in categoryDB, will be overwritten with same value
+		"steamcharts.com",
+		"steamdb.info",
+		"steamspy.com",
+		"steamlists.com",
+		"steamcardexchange.net",
+		"steamtrades.com",
+		"steamgifts.com",
+		"steamrep.com",
+		"steamstatus.com",
+		"steamstat.us",
+		"epicgames.com",         // already in categoryDB
+		"epicgames.dev",
+		"unrealengine.com",
+		"fortnite.com",
+		"unrealtournament.com",
+		"gog.com",
+		"humblebundle.com",
+		"fanatical.com",
+		"greenmangaming.com",
+		"gamersgate.com",
+		"itch.io",
+
+		// ========== Valve ==========
+		"valvesoftware.com",
+		"valve.net",
+		"counter-strike.net",
+		"dota2.com",
+		"dota2.net",
+		"teamfortress.com",
+		"half-life.com",
+		"left4dead.com",
+		"csgo.com",
+		"csgostash.com",
+		"csgobackpack.com",
+		"csgofast.com",
+		"csgoroll.com",
+		"dota2protracker.com",
+		"dotabuff.com",
+		"opendota.com",
+
+		// ========== Riot Games ==========
+		"riotgames.com",
+		"leagueoflegends.com",
+		"lolesports.com",
+		"valorant.com",
+		"playvalorant.com",
+		"teamfighttactics.com",
+		"tft.com",
+		"wildrift.com",
+		"runeterra.com",
+		"legendsruneterra.com",
+		"riotcdn.net",
+		"riotpin.com",
+		"lolstatic.com",
+		"lolcdn.com",
+		"lolshop.com",
+		"lolgames.com",
+		"leagueoflegends.net",
+		"u.gg",
+		"op.gg",
+		"opgg.com",
+		"blitz.gg",
+		"blitzapp.com",
+		"porofessor.gg",
+		"mobalytics.gg",
+		"lolalytics.com",
+		"leagueofgraphs.com",
+		"probuilds.net",
+		"u.gg",
+
+		// ========== Blizzard / Activision ==========
+		"blizzard.com",
+		"battle.net",
+		"activision.com",
+		"callofduty.com",
+		"callofduty.net",
+		"playwarzone.com",
+		"warzone.com",
+		"worldofwarcraft.com",
+		"wowhead.com",
+		"wowdb.com",
+		"icy-veins.com",
+		"wowprogress.com",
+		"raider.io",
+		"overwatch.com",
+		"playoverwatch.com",
+		"overwatchleague.com",
+		"hearthstone.com",
+		"playhearthstone.com",
+		"hearthpwn.com",
+		"starcraft.com",
+		"starcraft2.com",
+		"diablo.com",
+		"diablo3.com",
+		"diablo4.com",
+		"diabloimmortal.com",
+		"heroesofthestorm.com",
+		"blizzardnews.com",
+		"blizzcon.com",
+
+		// ========== EA ==========
+		"ea.com",
+		"origin.com",
+		"battlefield.com",
+		"battlefield2042.com",
+		"needforspeed.com",
+		"nfs.com",
+		"eafc.com",
+		"fifa.com",          // FIFA/EAFS
+		"maddennfl.com",
+		"thesims.com",
+		"sims.com",
+		"ea.com/apexlegends",
+		"apexlegends.com",
+		"playapex.com",
+		"respawn.com",
+		"dice.se",
+		"dice.com",
+		"bioware.com",
+		"masseffect.com",
+		"dragonage.com",
+		"starwarsjedifallenorder.com",
+		"eaplay.com",
+
+		// ========== Ubisoft ==========
+		"ubisoft.com",
+		"uplay.com",
+		"connect.ubisoft.com",
+		"rainbow6.com",
+		"rainbow6.ubisoft.com",
+		"r6stats.com",
+		"r6tab.com",
+		"tomclancy.com",
+		"assassinsscreed.com",
+		"farcry.com",
+		"watchdogs.com",
+		"divisiongame.com",
+		"forhonor.com",
+		"ghostrecon.com",
+		"thecrew.com",
+		"skullandbonesgame.com",
+		"ubisoftconnect.com",
+
+		// ========== Microsoft / Xbox / Bethesda ==========
+		"xbox.com",
+		"xboxlive.com",
+		"xboxgamepass.com",
+		"xboxplay.com",
+		"xboxab.com",
+		"xbox.eu",
+		"halowaypoint.com",
+		"forzamotorsport.net",
+		"forzahorizon.net",
+		"forza.net",
+		"ageofempires.com",
+		"mojang.com",
+		"minecraft.net",
+		"minecraft.com",
+		"mojang.net",
+		"minecraftforum.net",
+		"minecraftwiki.net",
+		"hypixel.net",
+		"mcmarket.io",
+		"curseforge.com",
+		"bethesda.net",
+		"elderscrolls.com",
+		"elderscrollsonline.com",
+		"eso.com",
+		"esoui.com",
+		"fallout.com",
+		"doom.com",
+		"starfield.com",
+		"rare.com",
+		"obsidian.net",
+		"minecraftserver.com",
+		"aternos.org",
+
+		// ========== Sony / PlayStation ==========
+		"playstation.com",
+		"playstation.net",
+		"sonyinteractive.com",
+		"gran-turismo.com",
+		"naughtydog.com",
+		"insomniacgames.com",
+		"guerrilla-games.com",
+		"supermassivegames.com",
+
+		// ========== Nintendo ==========
+		"nintendo.com",
+		"nintendo.net",
+		"nintendo.co.jp",
+		"nintendo-europe.com",
+		"splatoon.com",
+		"zelda.com",
+		"mario.com",
+		"pokemon.com",
+		"pokemon.net",
+		"pokemoncenter.com",
+		"smashbros.com",
+		"animalcrossing.com",
+		"kirby.com",
+		"nintendolife.com",
+		"nintendoswitch.com",
+		"nintendo.co.kr",
+
+		// ========== Rockstar / Take-Two ==========
+		"rockstargames.com",
+		"rockstarnorth.com",
+		"socialclub.rockstargames.com",
+		"grandtheftauto.com",
+		"gtav.net",
+		"gta.com",
+		"reddeadredemption.com",
+		"reddeadonline.com",
+		"take2games.com",
+		"2k.com",
+		"civilization.com",
+		"borderlands.com",
+		"mafia-game.com",
+		"bioshock.com",
+		"xcom.com",
+
+		// ========== CD Projekt ==========
+		"cdprojektred.com",
+		"cdprojekt.com",
+		"cyberpunk.net",
+		"thewitcher.com",
+
+		// ========== Japanese Publishers ==========
+		"square-enix.com",
+		"finalfantasy.com",
+		"ffxiv.com",
+		"finalfantasyxiv.com",
+		"lodestone.com",
+		"kingdomhearts.com",
+		"dragonquest.com",
+		"capcom.com",
+		"capcom-unity.com",
+		"residentevil.com",
+		"monsterhunter.com",
+		"streetfighter.com",
+		"devilmaycry.com",
+		"konami.com",
+		"metalgear.com",
+		"kojimaproductions.jp",
+		"sega.com",
+		"sonic.com",
+		"atlus.com",
+		"persona.com",
+		"megaten.com",
+		"bandainamcoent.com",
+		"namco.com",
+		"tecmokoei.com",
+		"koeitecmo.com",
+		"fromsoftware.com",
+		"eldenring.com",
+		"darksouls.com",
+		"sekiro.com",
+		"platinumgames.com",
+		"arcsystemworks.com",
+		"cygames.com",
+		"granbluefantasy.com",
+		"mobage.com",
+
+		// ========== Korean Publishers ==========
+		"nexon.com",
+		"nexon.net",
+		"maplestory.com",
+		"maplestory.net",
+		"ncsoft.com",
+		"lineage.com",
+		"lineage2.com",
+		"aion.com",
+		"guildwars.com",
+		"bladeandsoul.com",
+		"smilegate.com",
+		"cfgame.com",
+		"lostark.com",
+		"lostarkgame.com",
+		"kr.play.com",
+		"neople.com",
+		"dnf.com",
+		"df.nexon.com",
+		"kartrider.com",
+		"bluehole.com",
+		"pubg.com",
+		"pubgmobile.com",
+		"krafton.com",
+
+		// ========== Wargaming / Gaijin ==========
+		"wargaming.net",
+		"worldoftanks.com",
+		"worldoftanks.asia",
+		"worldofwarships.com",
+		"worldofwarplanes.com",
+		"gaijin.net",
+		"warthunder.com",
+
+		// ========== Indie / Other Studios ==========
+		"daybreakgames.com",
+		"planetside.com",
+		"funcom.com",
+		"conanexiles.com",
+		"jagex.com",
+		"runescape.com",
+		"oldscape.com",
+		"runelite.com",
+		"crytek.com",
+		"crysis.com",
+		"huntshowdown.com",
+		"deepsilver.com",
+		"thq.com",
+		"nordicgames.com",
+		"paradoxinteractive.com",
+		"paradoxplaza.com",
+		"stellaris.com",
+		"citiesskylines.com",
+		"crusaderkings.com",
+		"europauniversalis.com",
+		"heartsofiron.com",
+		"totalwar.com",
+		"creative-assembly.com",
+		"segagames.com",
+		"relic.com",
+		"gearbox.com",
+		"gearboxsoftware.com",
+		"telltale.com",
+		"quanticdream.com",
+		"supercell.com",
+		"clash.com",
+		"clashofclans.com",
+		"brawlstars.com",
+		"hayday.com",
+		"boombeach.com",
+		"king.com",
+		"candycrush.com",
+		"zynga.com",
+		"zyngagames.com",
+		"playtika.com",
+
+		// ========== Roblox Ecosystem ==========
+		"roblox.com",          // already in categoryDB
+		"roblox.net",
+		"robloxlabs.com",
+		"rblx.com",
+		"rbxcdn.com",
+		"rbxcdn.net",
+		"rblxcdn.com",
+		"robloxapi.com",
+		"robloxdev.com",
+		"robloxscripts.com",
+		"roblox.plus",
+		"bloxbiz.com",
+		"bloxcart.com",
+		"rbxplace.com",
+		"rbx.com",
+		"robloxcatalog.com",
+		"robloxforum.com",
+
+		// ========== Streaming & Community ==========
+		"twitch.tv",
+		"twitch.com",
+		"twitchcdn.net",
+		"twitchcdn.com",
+		"ttvnw.net",
+		"jtvnw.net",
+		"streamelements.com",
+		"streamlabs.com",
+		"discord.com",
+		"discordapp.com",
+		"discord.gg",
+		"discordmerch.com",
+		"discordcdn.com",
+		"discord.net",
+		"teamspeak.com",
+		"teamspeak.net",
+		"mumble.com",
+		"ventrilo.com",
+		"curse.com",
+		"overwolf.com",
+		"gamewisp.com",
+		"patreon.com",     // gaming creators
+		"ko-fi.com",
+
+		// ========== Game Wikis / Databases ==========
+		"gamepedia.com",
+		"fandom.com",      // many gaming wikis
+		"gamefaqs.com",
+		"speedrun.com",
+		"howlongtobeat.com",
+		"igdb.com",
+		"giantbomb.com",
+		"metacritic.com",
+		"opencritic.com",
+		"vgchartz.com",
+		"gamewise.com",
+		"truetrophies.com",
+		"trueachievements.com",
+		"psnprofiles.com",
+		"exophase.com",
+		"retrogametalk.com",
+
+		// ========== Gaming News / Media ==========
+		"ign.com",
+		"gamespot.com",
+		"eurogamer.net",
+		"pcgamer.com",
+		"rockpapershotgun.com",
+		"kotaku.com",
+		"destructoid.com",
+		"polygon.com",
+		"vg247.com",
+		"gamesradar.com",
+		"gamasutra.com",
+		"gamedeveloper.com",
+		"gameinformer.com",
+		"videogamer.com",
+		"psu.com",
+		"siliconera.com",
+		"rpgsite.net",
+		"nintendolife.com",
+		"purexbox.com",
+		"gamereactor.com",
+		"gamingbolt.com",
+		"dualshockers.com",
+		"twinfinite.net",
+
+		// ========== Esports ==========
+		"esports.com",
+		"eslgaming.com",
+		"faceit.com",
+		"faceitcdn.com",
+		"hltv.org",
+		"strafe.com",
+		"thescoreesports.com",
+		"dotesports.com",
+		"esports.net",
+		"esportswatch.com",
+		"esportsearnings.com",
+		"liquipedia.net",
+
+		// ========== Game Servers / Hosting ==========
+		"gameservers.com",
+		"nitrado.net",
+		"gtx.com",
+		"hosthavoc.com",
+		"pingperfect.com",
+		"nodecraft.com",
+		"server.pro",
+		"minecraft-hosting.com",
+		"billing.pro",
+		"minecraftserver.pro",
+
+		// ========== Cheating / Modding ==========
+		"cheathappens.com",
+		"gamecopyworld.com",
+		"mrantifun.net",
+		"nexusmods.com",
+		"moddb.com",
+		"gamebanana.com",
+		"skymods.net",
+		"mod.io",
+		"modrinth.com",
+		"planetminecraft.com",
+		"planetmods.com",
+
+		// ========== Chinese Gaming: Tencent ==========
+		"game.qq.com",
+		"qqgames.com",
+		"wegame.com",
+		"wegamestore.com",
+		"tencentgames.com",
+		"dnf.qq.com",
+		"lol.qq.com",
+		"cf.qq.com",
+		"wangzhe.qq.com",
+		"pvp.qq.com",
+		"hok.qq.com",
+		"pubgm.qq.com",
+		"qqx5.com",
+		"speed.qq.com",
+		"naruto.qq.com",
+		"diy.qq.com",
+		"games.qq.com",
+		"gamecenter.qq.com",
+		"egame.qq.com",
+		"huayang.qq.com",
+		"m.qq.com/game",
+
+		// ========== Chinese Gaming: NetEase ==========
+		"game.163.com",
+		"netease.com",
+		"neteasegames.com",
+		"uu.163.com",
+		"wy.163.com",
+		"fantasy.163.com",
+		"xyq.163.com",
+		"mhxy.163.com",
+		"jh.163.com",
+		"tx.163.com",
+		"nieshu.com",
+		"netease.mobi",
+		"cbg.163.com",
+		"cc.163.com",
+		"g.163.com",
+		"gm.163.com",
+
+		// ========== Chinese Gaming Portals ==========
+		"4399.com",
+		"4399.cn",
+		"www.4399.cn",
+		"7k7k.com",
+		"m.7k7k.com",
+		"3366.com",
+		"game.3366.com",
+		"337.com",
+		"52pk.com",
+		"duowan.com",
+		"uuu9.com",
+		"yxdown.com",
+		"ali213.com",
+		"3dmgame.com",
+		"gamersky.com",
+		"17173.com",
+		"pcgames.com.cn",
+		"game.pcgames.com.cn",
+		"yx.qq.com",
+		"game.21cn.com",
+		"game.zol.com.cn",
+		"game.mydrivers.com",
+		"game.ali213.net",
+
+		// ========== Chinese Gaming Companies ==========
+		"taptap.com",
+		"taptap.io",
+		"taptap.cn",
+		"37.com",
+		"37wan.com",
+		"youzu.com",
+		"youzu.net",
+		"leiting.com",
+		"longtugame.com",
+		"gamecomb.com",
+		"9you.com",
+		"zy-game.com",
+		"gametogether.cn",
+		"game2.cn",
+		"gamedot.com",
+		"gamex.com",
+		"joyme.com",
+		"wandoujia.com",
+		"game.xiaomi.com",
+		"game.mi.com",
+		"game.huawei.com",
+		"appgallery.huawei.com",
+		"game.vivo.com",
+		"game.oppomobile.com",
+
+		// ========== Chinese Game Streaming ==========
+		"huya.com",
+		"douyu.com",
+		"zhanqi.tv",
+		"longzhu.com",
+		"panda.tv",
+		"live.bilibili.com",
+		"egame.qq.com",
+
+		// ========== Chinese Game Accelerators ==========
+		"xunyou.com",
+		"biubiu001.com",
+		"biubiuaccelerator.com",
+		"qiyou.com",
+		"haoyou.com",
+		"tunshu.com",
+		"goubo.com",
+		"kuaishou.com/game",
+
+		// ========== Chinese Game Trading ==========
+		"5173.com",
+		"dd373.com",
+		"uu898.com",
+		"g2g.com",
+		"playerauctions.com",
+		"gameflip.com",
+
+		// ========== Chinese Browser Games ==========
+		"wangye.com",
+		"wanyx.com",
+		"game.kugou.com",
+		"game.kuwo.cn",
+		"coolapk.com",
+
+		// ========== Private Servers (China) ==========
+		"zhaosf.com",
+		"sfdiy.com",
+		"mir2sf.com",
+		"sf521.com",
+		"dknyou.com",
+		"sfmir.com",
+		"chuanqisf.com",
+		"mir5.com",
+
+		// ========== Mobile Game Platforms ==========
+		"tap.io",
+		"apptap.com",
+		"apkpure.com",
+		"apkmirror.com",
+		"apkcombo.com",
+		"android.com/games",
+		"play.google.com",
+		"apps.apple.com",
+		"appstore.com",
+		"appstoreconnect.com",
+		"game.xiaomi.com",
+		"app.mi.com/game",
+		"game.huawei.com",
+		"game.vivo.com",
+		"game.oppomobile.com",
+		"appgallery.huawei.com",
+
+		// ========== Popular Mobile Games ==========
+		"genshin.hoyoverse.com",
+		"genshinimpact.com",
+		"hoyoverse.com",
+		"mihoyo.com",
+		"honkai.com",
+		"honkaistarrail.com",
+		"starrail.com",
+		"honkaiimpact3.com",
+		"hoyolab.com",
+		"hoyomedia.com",
+		"onepiecegames.com",
+		"nikkegoddess.com",
+		"arknights.com",
+		"arknights.global",
+		"hypergryph.com",
+		"bluearchive.com",
+		"bluearchive.jp",
+		"yostar.com",
+		"yostar.net",
+		"yostarstudio.com",
+		"girlsfrontline.com",
+		"sunborn.net",
+		"azurlane.com",
+		"azurlane.jp",
+		"game.bilibili.com",
+
+		// ========== Gaming Hardware/RGB ==========
+		"razer.com",
+		"razerzone.com",
+		"logitechg.com",
+		"steelseries.com",
+		"corsair.com/gaming",
+		"roccat.com",
+		"hyperx.com",
+		"alienware.com",
+		"asus.com/rog",
+		"republicofgamers.com",
+	}
+	case "CAT_003":
+		return []string{
+			"tinder.com", "bumble.com", "okcupid.com", "match.com",
+			"plentyoffish.com", "pof.com", "hinge.com", "eharmony.com",
+			"zoosk.com", "grindr.com", "grindrapp.com", "badoo.com",
+			"taimi.com", "coffeemeetsbagel.com", "happn.com",
+			"feeld.com", "scruff.com", "adultfriendfinder.com",
+			"fetlife.com", "ashleymadison.com", "seeking.com",
+			"elitesingles.com", "silversingles.com", "christianmingle.com",
+			"jdate.com", "wooplus.com", "dateinasia.com", "asiandating.com",
+		}
+	case "CAT_006":
+		return []string{
+			"youtube.com", "ytimg.com", "youtu.be", "googlevideo.com",
+			"youtubekids.com", "netflix.com", "nflximg.com", "nflxvideo.net",
+			"tiktok.com", "tiktokcdn.com", "douyin.com",
+			"primevideo.com", "disneyplus.com", "dssott.com",
+			"hulu.com", "hbomax.com", "max.com",
+			"paramountplus.com", "peacocktv.com", "tv.apple.com",
+			"crunchyroll.com", "dailymotion.com", "dmcdn.net",
+			"vimeo.com", "bilibili.com", "iqiyi.com",
+			"youku.com", "tudou.com", "qq.com",
+			"v.qq.com", "mgtv.com",
+		}
+	default:
+		return nil
+	}
+}
+
+func (e *Engine) applySafeSearch(p *ProfileState, domain string, decision *models.FilterDecision) bool {
+	if !p.SafeSearch {
+		return false
+	}
+
+	// Don't rewrite SafeSearch target domains themselves (avoid CNAME loop)
+	if strings.HasSuffix(domain, "forcesafesearch.google.com") ||
+		strings.HasSuffix(domain, "restrict.youtube.com") ||
+		strings.HasSuffix(domain, "strict.bing.com") ||
+		strings.HasSuffix(domain, "safe.duckduckgo.com") {
+		return false
+	}
+
+		rewrites := map[string]string{
+			"google.com":            "forcesafesearch.google.com",
+			"www.google.com":        "forcesafesearch.google.com",
+			"images.google.com":     "forcesafesearch.google.com",
+			"news.google.com":       "forcesafesearch.google.com",
+			"maps.google.com":       "forcesafesearch.google.com",
+			"google.co.jp":          "forcesafesearch.google.com",
+			"www.google.co.jp":      "forcesafesearch.google.com",
+			"google.co.kr":          "forcesafesearch.google.com",
+			"www.google.co.kr":      "forcesafesearch.google.com",
+			"google.com.hk":         "forcesafesearch.google.com",
+			"www.google.com.hk":     "forcesafesearch.google.com",
+			"google.com.tw":         "forcesafesearch.google.com",
+			"www.google.com.tw":     "forcesafesearch.google.com",
+			"google.com.sg":         "forcesafesearch.google.com",
+			"www.google.com.sg":     "forcesafesearch.google.com",
+			"google.co.in":          "forcesafesearch.google.com",
+			"www.google.co.in":      "forcesafesearch.google.com",
+			"google.co.uk":          "forcesafesearch.google.com",
+			"www.google.co.uk":      "forcesafesearch.google.com",
+			"google.de":             "forcesafesearch.google.com",
+			"www.google.de":         "forcesafesearch.google.com",
+			"google.fr":             "forcesafesearch.google.com",
+			"www.google.fr":         "forcesafesearch.google.com",
+			"google.ca":             "forcesafesearch.google.com",
+			"www.google.ca":         "forcesafesearch.google.com",
+			"google.com.au":         "forcesafesearch.google.com",
+			"www.google.com.au":     "forcesafesearch.google.com",
+			"bing.com":              "strict.bing.com",
+			"www.bing.com":          "strict.bing.com",
+			"duckduckgo.com":        "safe.duckduckgo.com",
+			"www.duckduckgo.com":    "safe.duckduckgo.com",
+		}
+
+		// YouTube Restricted Mode — only rewrite when explicitly enabled
+		if p.YouTubeRestricted {
+			rewrites["youtube.com"] = "restrict.youtube.com"
+			rewrites["m.youtube.com"] = "restrict.youtube.com"
+			rewrites["www.youtube.com"] = "restrict.youtube.com"
+		}
+
+	for original, safe := range rewrites {
+		if domain == original {
+			decision.Decision = models.REWRITE
+			decision.Reason = fmt.Sprintf("P5.5: SafeSearch Rewrite (%s)", safe)
+			decision.Domain = safe
+			return true
+		}
+	}
+	return false
+}

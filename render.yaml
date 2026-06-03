@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: dnsway-api
+    runtime: go
+    repo: https://github.com/yoshinaga211/dnsway
+    branch: main
+    plan: free
+    envVars:
+      - key: ENV
+        value: production
+    buildCommand: go build -o api ./internal/api/
+    startCommand: ./api
+    healthCheckPath: /health
+    ports:
+      - port: 8080

@@ -1,0 +1,32 @@
+# Binaries
+dns-pc
+dns-pc-linux
+dns-pc-linux.gz
+
+# Logs
+/logs/
+*.log
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Gradle
+.gradle/
+build/
+*/build/
+local.properties
+
+# Android
+*.apk
+*.aab

@@ -1,0 +1,32 @@
+id,name,url,enabled
+1,OISD Big (Full),https://big.oisd.nl/,t
+2,OISD Small,https://small.oisd.nl/,t
+3,AdGuard DNS Filter,https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt,t
+4,HaGeZi - Multi PRO++,https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/multi.txt,t
+5,EasyList (Ads),https://easylist.to/easylist/easylist.txt,t
+6,EasyPrivacy (Tracking),https://easylist.to/easylist/easyprivacy.txt,t
+7,anti-AD (Chinese Ads),https://anti-ad.net/easylist.txt,t
+8,HaGeZi - Gambling,https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/gambling-onlydomains.txt,t
+9,HaGeZi - NSFW,https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/nsfw-onlydomains.txt,t
+10,HaGeZi - Anti-Piracy,https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/anti.piracy-onlydomains.txt,t
+11,HaGeZi - Threat Intelligence,https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/tif-onlydomains.txt,t
+12,HaGeZi - Social Media,https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/social-onlydomains.txt,t
+13,Game Sites - Unified (nickoppen),https://raw.githubusercontent.com/nickoppen/pihole-blocklists/master/unifiedGamingLists01.txt,t
+14,Game Sites - Activision/Blizzard,https://raw.githubusercontent.com/nickoppen/pihole-blocklists/master/blocklist-activision.txt,f
+15,Game Sites - Electronic Arts,https://raw.githubusercontent.com/nickoppen/pihole-blocklists/master/blocklist-ea.txt,f
+16,Game Sites - Epic Games,https://raw.githubusercontent.com/nickoppen/pihole-blocklists/master/blocklist-epicgames.txt,f
+17,Game Sites - Nintendo,https://raw.githubusercontent.com/nickoppen/pihole-blocklists/master/blocklist-nintendo.txt,f
+18,Game Sites - Riot Games,https://raw.githubusercontent.com/nickoppen/pihole-blocklists/master/blocklist-riotgames.txt,f
+19,Game Sites - Roblox,https://raw.githubusercontent.com/nickoppen/pihole-blocklists/master/blocklist-roblox.txt,f
+20,Game Sites - Steam,https://raw.githubusercontent.com/nickoppen/pihole-blocklists/master/blocklist-steam.txt,f
+21,Game Sites - Tencent,https://raw.githubusercontent.com/nickoppen/pihole-blocklists/master/blocklist-tencent.txt,f
+22,Game Sites - Ubisoft,https://raw.githubusercontent.com/nickoppen/pihole-blocklists/master/blocklist-ubisoft.txt,f
+23,Game Sites - Rockstar,https://raw.githubusercontent.com/nickoppen/pihole-blocklists/master/blocklist-rockstargames.txt,f
+24,Game Sites - Minecraft,https://raw.githubusercontent.com/nickoppen/pihole-blocklists/master/blocklist-minecraft.txt,f
+25,Game Sites - GOG,https://raw.githubusercontent.com/nickoppen/pihole-blocklists/master/blocklist-gog.txt,f
+26,Game Sites - Square Enix,https://raw.githubusercontent.com/nickoppen/pihole-blocklists/master/blocklist-square-enix.txt,f
+27,Game Sites - War Thunder,https://raw.githubusercontent.com/nickoppen/pihole-blocklists/master/blocklist-warthunder.txt,f
+28,Game Sites - Zynga,https://raw.githubusercontent.com/nickoppen/pihole-blocklists/master/blocklist-zynga.txt,f
+29,Game Sites - Take-Two,https://raw.githubusercontent.com/nickoppen/pihole-blocklists/master/blocklist-take-twoInteractive.txt,f
+30,Dating Services (lightswitch05),https://raw.githubusercontent.com/lightswitch05/hosts/master/docs/lists/dating-services-extended.txt,t
+31,Audio/Video Streaming (cipher-oos),https://raw.githubusercontent.com/cipher-oos/Categorized-Web-Filter-Blocklists/main/Blacklists%20for%20Dansguardian/audio-video/domains,t

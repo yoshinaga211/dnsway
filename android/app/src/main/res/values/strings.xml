@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Dnsway</string>
+    <string name="status_protected">已保护</string>
+    <string name="status_not_configured">未配置</string>
+    <string name="status_bypassed">已绕过</string>
+    <string name="btn_test_dns">检测 DNS</string>
+    <string name="btn_open_settings">打开系统设置</string>
+    <string name="tab_rules">规则</string>
+    <string name="tab_home">首页</string>
+    <string name="tab_settings">设置</string>
+    <string name="allowlist">白名单</string>
+    <string name="denylist">黑名单</string>
+    <string name="stats_today">今日统计</string>
+    <string name="total_queries">总查询</string>
+    <string name="blocked_count">已拦截</string>
+    <string name="accessibility_service_description">守护 VPN 过滤状态，检测绕过行为</string>
+    <string name="device_admin_description">防止应用被随意卸载</string>
+</resources>
