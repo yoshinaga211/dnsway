@@ -25,7 +25,8 @@ fun SettingsScreen(
     onNavigateToCategories: () -> Unit = {},
     onNavigateToLogs: () -> Unit = {},
     onNavigateToSecurity: () -> Unit = {},
-    onNavigateToPrivacy: () -> Unit = {}
+    onNavigateToPrivacy: () -> Unit = {},
+    onRequirePin: ((action: () -> Unit) -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     val dao = DnswayApp.instance.database.ruleDao()
@@ -173,7 +174,13 @@ fun SettingsScreen(
         Spacer(modifier = Modifier.height(10.dp))
 
         OutlinedButton(
-            onClick = { scope.launch { dao.clearLogs() } },
+            onClick = {
+                if (onRequirePin != null) {
+                    onRequirePin { scope.launch { dao.clearLogs() } }
+                } else {
+                    scope.launch { dao.clearLogs() }
+                }
+            },
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = Red500)
         ) {

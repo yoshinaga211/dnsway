@@ -85,4 +85,5 @@ dependencies {
     implementation(libs.coroutines.android)
     implementation(libs.core.ktx)
     implementation(libs.dnsjava)
+    implementation(libs.security.crypto)
 }

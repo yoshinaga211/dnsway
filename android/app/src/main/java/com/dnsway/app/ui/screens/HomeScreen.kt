@@ -27,7 +27,8 @@ import java.util.*
 @Composable
 fun HomeScreen(
     onNavigateToGuide: () -> Unit,
-    onNavigateToLogs: () -> Unit = {}
+    onNavigateToLogs: () -> Unit = {},
+    onRequirePin: ((action: () -> Unit) -> Unit)? = null
 ) {
     val dao = DnswayApp.instance.database.ruleDao()
     val recentLogs by dao.getRecentLogs().collectAsState(initial = emptyList())
@@ -153,7 +154,13 @@ fun HomeScreen(
         Spacer(modifier = Modifier.height(10.dp))
 
         if (isVpnRunning) {
-            QuickActionButton(text = "停止过滤") { LocalDnsVpnService.stop(context) }
+            QuickActionButton(text = "停止过滤") {
+                if (onRequirePin != null) {
+                    onRequirePin { LocalDnsVpnService.stop(context) }
+                } else {
+                    LocalDnsVpnService.stop(context)
+                }
+            }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = "DNS 过滤已启用 ✓",
