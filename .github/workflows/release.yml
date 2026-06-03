@@ -43,23 +43,21 @@ jobs:
         run: chmod +x gradlew
         working-directory: ${{ github.workspace }}/android
 
-      - name: Build APK
-        run: ./gradlew assembleDebug
+      - name: Build and sign APK
+        run: |
+          echo "KEYSTORE_PATH=dnsway-release.jks" >> $GITHUB_ENV
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > dnsway-release.jks
+          chmod 600 dnsway-release.jks
+          ./gradlew assembleRelease
         working-directory: ${{ github.workspace }}/android
-
-      - name: Sign APK
-        id: sign
-        uses: ilharp/sign-android-release@v1
-        with:
-          releaseDir: android/app/build/outputs/apk/debug
-          signingKey: ${{ secrets.ANDROID_SIGNING_KEY }}
-          keyAlias: ${{ secrets.ANDROID_KEY_ALIAS }}
-          keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          storePassword: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
       - name: Rename APK
         run: |
-          mv android/app/build/outputs/apk/debug/app-debug-signed.apk \
+          cp android/app/build/outputs/apk/release/app-release.apk \
              Dnsway-${{ github.ref_name }}.apk
 
       - name: Create Release
