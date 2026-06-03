@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DNS.1 — Login</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+    <style>
+        .login-body { display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .login-container { width: 400px; max-width: 94vw; }
+        .brand { text-align: center; margin-bottom: 28px; }
+        .brand .logo { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; background: var(--primary); color: #fff; border-radius: 12px; font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+        .brand h1 { font-size: 1.4rem; font-weight: 700; }
+        .auth-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+        .tabs { display: flex; border-bottom: 1px solid var(--border); }
+        .tab { flex: 1; text-align: center; padding: 14px; cursor: pointer; font-size: 0.88rem; color: var(--muted); font-weight: 500; border-bottom: 2px solid transparent; transition: all 0.15s; }
+        .tab:hover { color: var(--text); }
+        .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+        .panel { display: none; padding: 24px; }
+        .panel.active { display: block; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 0.82rem; font-weight: 500; margin-bottom: 4px; color: var(--text); }
+        .form-group input { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; outline: none; transition: border 0.15s; }
+        .form-group input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,110,247,0.1); }
+        .btn-email { background: #1a1d26; color: #fff; }
+        .error { color: var(--red); font-size: 0.8rem; margin-top: 8px; text-align: center; display: none; }
+        .error.show { display: block; }
+        .qr-box { text-align: center; padding: 20px 0; }
+        .qr-placeholder { width: 180px; height: 180px; background: var(--bg); border: 1px dashed var(--border); border-radius: 12px; margin: 0 auto; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 0.82rem; }
+        .pricing-link { text-align: center; margin-top: 16px; font-size: 0.82rem; color: var(--muted); }
+        .pricing-link a { color: var(--primary); text-decoration: none; font-weight: 500; }
+    </style>
+</head>
+<body class="login-body">
+<div class="login-container">
+    <div class="brand">
+        <div class="logo">1</div>
+        <h1>DNS.1</h1>
+    </div>
+    <div class="auth-card">
+        <div class="tabs">
+            <div class="tab active" data-tab="login">邮箱登录</div>
+            <div class="tab" data-tab="register">注册</div>
+            <div class="tab" data-tab="wechat">微信登录</div>
+        </div>
+
+        <!-- Email Login -->
+        <div class="panel active" id="panel-login">
+            <div class="form-group"><label>邮箱</label><input type="email" id="loginEmail" placeholder="your@email.com"></div>
+            <div class="form-group"><label>密码</label><input type="password" id="loginPassword" placeholder="输入密码"></div>
+            <button class="btn btn-primary" onclick="doLogin()">登录</button>
+            <div class="error" id="loginError"></div>
+        </div>
+
+        <!-- Register -->
+        <div class="panel" id="panel-register">
+            <div class="form-group"><label>邮箱</label><input type="email" id="regEmail" placeholder="your@email.com"></div>
+            <div class="form-group"><label>密码</label><input type="password" id="regPassword" placeholder="至少 6 位"></div>
+            <button class="btn btn-email" onclick="doRegister()">注册（7 天免费试用）</button>
+            <div class="error" id="regError"></div>
+        </div>
+
+        <!-- WeChat QR Login -->
+        <div class="panel" id="panel-wechat">
+            <div class="qr-box">
+                <div class="qr-placeholder" id="qrBox">
+                    <span id="qrText">微信扫码登录<br><small style="color:var(--muted);">（开发模式：点击模拟）</small></span>
+                </div>
+            </div>
+            <button class="btn btn-primary" onclick="mockWechatLogin()" style="margin-top:8px;">模拟微信登录</button>
+            <div class="error" id="wechatError"></div>
+        </div>
+    </div>
+    <div class="pricing-link"><a href="/pricing">查看订阅方案</a></div>
+</div>
+
+<script src="/static/js/app.js"></script>
+<script>
+function showTab(name) {
+    document.querySelectorAll('.tab, .panel').forEach(el => el.classList.remove('active'));
+    document.querySelector(`.tab[data-tab="${name}"]`).classList.add('active');
+    document.getElementById(`panel-${name}`).classList.add('active');
+    document.querySelectorAll('.error').forEach(e => e.classList.remove('show'));
+}
+
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)));
+
+async function doLogin() {
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    const errEl = document.getElementById('loginError');
+    if (!email || !password) { errEl.textContent = '请输入邮箱和密码'; errEl.classList.add('show'); return; }
+    try {
+        const data = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+        saveAuth(data.token);
+    } catch(e) { errEl.textContent = e.message; errEl.classList.add('show'); }
+}
+
+async function doRegister() {
+    const email = document.getElementById('regEmail').value.trim();
+    const password = document.getElementById('regPassword').value;
+    const errEl = document.getElementById('regError');
+    if (!email || !password) { errEl.textContent = '请输入邮箱和密码'; errEl.classList.add('show'); return; }
+    if (password.length < 6) { errEl.textContent = '密码至少 6 位'; errEl.classList.add('show'); return; }
+    try {
+        const data = await api('/auth/register', { method: 'POST', body: JSON.stringify({ email, password }) });
+        saveAuth(data.token);
+    } catch(e) { errEl.textContent = e.message; errEl.classList.add('show'); }
+}
+
+async function mockWechatLogin() {
+    const errEl = document.getElementById('wechatError');
+    try {
+        const qr = await api('/auth/wechat/qrcode', { method: 'POST' });
+        // In mock mode, redirect to callback with mock code
+        document.getElementById('qrText').innerHTML = '登录中...';
+        window.location.href = qr.qr_url;
+    } catch(e) { errEl.textContent = e.message; errEl.classList.add('show'); }
+}
+
+// Enter key submits login form
+document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+document.getElementById('regPassword').addEventListener('keydown', e => { if (e.key === 'Enter') doRegister(); });
+</script>
+</body>
+</html>

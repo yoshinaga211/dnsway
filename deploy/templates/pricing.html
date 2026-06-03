@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DNS.1 — Pricing</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+    <style>
+        .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+        .header .logo { font-size: 1.2rem; font-weight: 700; }
+        .header a { color: var(--primary); text-decoration: none; font-weight: 500; font-size: 0.9rem; }
+        .container { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+        h2 { text-align: center; margin-bottom: 8px; font-size: 1.6rem; }
+        .subtitle { text-align: center; color: var(--muted); margin-bottom: 32px; }
+        .plan-card { background: var(--surface); border: 2px solid var(--primary); border-radius: 12px; padding: 28px 24px 32px; max-width: 420px; margin: 0 auto; text-align: center; position: relative; box-shadow: 0 4px 12px rgba(79,110,247,0.15); }
+        .badge { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: var(--primary); color: #fff; font-size: 0.75rem; padding: 3px 14px; border-radius: 10px; font-weight: 600; }
+        .plan-name { font-size: 1.2rem; font-weight: 700; margin-bottom: 4px; margin-top: 6px; }
+        .plan-desc { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
+        .price-row { display: flex; gap: 12px; justify-content: center; margin-bottom: 16px; }
+        .price-box { flex: 1; border: 1px solid #e8ecf1; border-radius: 10px; padding: 16px 12px; background: #fafbfc; cursor: pointer; transition: all 0.2s; }
+        .price-box:hover { border-color: var(--primary); box-shadow: 0 2px 8px rgba(79,110,247,0.12); }
+        .price-box.selected { border-color: var(--primary); background: #eef1ff; }
+        .price-box .label { font-size: 0.78rem; color: var(--muted); margin-bottom: 4px; }
+        .price-box .amount { font-size: 1.6rem; font-weight: 700; color: var(--primary); }
+        .price-box .amount .unit { font-size: 0.85rem; color: var(--muted); font-weight: 400; }
+        .price-box .save-badge { font-size: 0.72rem; color: var(--green); background: #dcfce7; padding: 2px 8px; border-radius: 4px; display: inline-block; margin-top: 4px; }
+        .price-box .equiv { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+        .plan-features { text-align: left; margin: 0 0 20px; padding: 0; list-style: none; }
+        .plan-features li { padding: 6px 0; font-size: 0.86rem; color: var(--muted); border-bottom: 1px solid #f7f8fa; }
+        .plan-features li::before { content: '✓ '; color: #22c55e; font-weight: 700; }
+        .btn-subscribe {
+            display: block; width: 100%; padding: 12px; border: none; border-radius: 8px;
+            font-size: 1rem; font-weight: 600; cursor: pointer;
+            background: var(--primary); color: #fff; transition: opacity 0.2s;
+        }
+        .btn-subscribe:hover { opacity: 0.88; }
+        .btn-subscribe:disabled { background: #22c55e; cursor: default; opacity: 0.7; }
+        .trial-note { text-align: center; margin-top: 24px; font-size: 0.84rem; color: var(--muted); }
+        .trial-note a { color: var(--primary); }
+    </style>
+</head>
+<body>
+<div class="header">
+    <div class="logo">DNS.1</div>
+    <div><a href="/login">登录</a> &nbsp; <a href="/dashboard">控制台</a></div>
+</div>
+<div class="container">
+    <h2>选择订阅方案</h2>
+    <p class="subtitle">所有方案包含 7 天免费试用，无需绑定信用卡</p>
+    <div id="planContainer"></div>
+    <div class="trial-note">已有账号？<a href="/login">立即登录</a> 开始免费试用</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="/static/js/app.js"></script>
+<script>
+let selectedPeriod = 'monthly';
+
+async function loadCurrentPlan() {
+    const tok = getToken();
+    if (!tok) return null;
+    try {
+        const r = await fetch(API + '/user/subscription', {
+            headers: { 'Authorization': 'Bearer ' + tok }
+        });
+        if (!r.ok) return null;
+        const data = await r.json();
+        return data.subscription ? (data.subscription.plan_id || 'free') : 'free';
+    } catch(e) { return null; }
+}
+
+function renderPlans(plansData, currentPlan) {
+    const p = plansData['pro'];
+    if (!p) return;
+
+    const monthly = p.price_monthly / 100;
+    const yearly = p.price_yearly / 100;
+    const yearlyMonthly = (yearly / 12).toFixed(2);
+    const features = p.features || [];
+    const onPlan = currentPlan === 'pro';
+
+    document.getElementById('planContainer').innerHTML =
+        '<div class="plan-card">' +
+            '<div class="badge">推荐</div>' +
+            '<div class="plan-name">Pro</div>' +
+            '<div class="plan-desc">全功能解锁，无限配置</div>' +
+            '<div class="price-row">' +
+                '<div class="price-box' + (selectedPeriod === 'monthly' ? ' selected' : '') + '" onclick="selectPeriod(\'monthly\')">' +
+                    '<div class="label">按月付费</div>' +
+                    '<div class="amount">¥' + monthly.toFixed(2) + '<span class="unit">/月</span></div>' +
+                '</div>' +
+                '<div class="price-box' + (selectedPeriod === 'yearly' ? ' selected' : '') + '" onclick="selectPeriod(\'yearly\')">' +
+                    '<div class="label">按年付费</div>' +
+                    '<div class="amount">¥' + yearly.toFixed(2) + '<span class="unit">/年</span></div>' +
+                    '<div class="equiv">≈ ¥' + yearlyMonthly + '/月</div>' +
+                    '<div class="save-badge">省 33%</div>' +
+                '</div>' +
+            '</div>' +
+            '<ul class="plan-features">' + features.map(function(f) { return '<li>' + f + '</li>'; }).join('') + '</ul>' +
+            (onPlan
+                ? '<button class="btn-subscribe" disabled>当前方案</button>'
+                : '<button class="btn-subscribe" onclick="doSubscribe()">立即订阅 ' + (selectedPeriod === 'monthly' ? '¥' + monthly.toFixed(2) + '/月' : '¥' + yearly.toFixed(2) + '/年') + '</button>') +
+        '</div>';
+}
+
+async function loadPlans() {
+    const currentPlan = await loadCurrentPlan();
+    try {
+        const r = await fetch(API + '/stripe/plans');
+        const data = await r.json();
+        renderPlans(data.plans || {}, currentPlan);
+    } catch(e) { console.error(e); }
+}
+
+function selectPeriod(period) {
+    selectedPeriod = period;
+    loadPlans();
+}
+
+function doSubscribe() {
+    const tok = getToken();
+    if (!tok) { window.location.href = '/login'; return; }
+
+    const p = document.querySelector('.price-box.selected');
+    if (!p) return;
+
+    fetch(API + '/stripe/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok },
+        body: JSON.stringify({ plan_id: 'pro', period: selectedPeriod })
+    })
+    .then(function(r) {
+        if (r.status === 401 || r.status === 404) {
+            localStorage.removeItem('dns1_token');
+            window.location.href = '/login';
+            return;
+        }
+        return r.json();
+    })
+    .then(function(data) {
+        if (!data) return;
+        if (data.url) {
+            window.location.href = data.url;
+        } else if (data.error) {
+            toast(data.details || data.error);
+        } else {
+            toast('无法创建支付会话');
+        }
+    })
+    .catch(function(e) {
+        toast('操作失败，请检查网络连接');
+        console.error(e);
+    });
+}
+
+loadPlans();
+</script>
+</body>
+</html>

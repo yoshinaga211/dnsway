@@ -8,8 +8,6 @@ services:
     envVars:
       - key: ENV
         value: production
-    buildCommand: go build -o api ./internal/api/
+    buildCommand: go build -o api ./cmd/api/
     startCommand: ./api
     healthCheckPath: /health
-    ports:
-      - port: 8080

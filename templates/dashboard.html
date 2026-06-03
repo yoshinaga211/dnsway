@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DNS.1 — Parental Control</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            display: flex; min-height: 100vh;
+        }
+
+        .sidebar-nav .nav-item .nav-icon { width: 18px; text-align: center; font-size: 0.9rem; }
+
+        .content { flex: 1; padding: 24px; max-width: 900px; }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        /* ── Rows ── */
+        .cat-row { display: flex; align-items: center; padding: 14px 20px; border-top: 1px solid var(--border); }
+        .cat-row:first-child { border-top: none; }
+        .cat-row.blocked { border-left: 3px solid var(--red); }
+        .cat-row.allowed { border-left: 3px solid var(--green); }
+        .cat-info { flex: 1; padding-right: 16px; }
+        .cat-name { font-weight: 600; font-size: 0.9rem; margin-bottom: 2px; }
+        .cat-details { font-size: 0.8rem; color: var(--muted); line-height: 1.4; }
+
+        /* ── Toggle ── */
+        .toggle-wrap { position: relative; display: inline-block; width: 44px; height: 24px; }
+        .toggle-wrap input {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0; cursor: pointer; z-index: 1; margin: 0;
+        }
+        .toggle-wrap label {
+            display: block; width: 100%; height: 100%; background: #cbd5e1;
+            border-radius: 12px; cursor: pointer; transition: background 0.2s;
+        }
+        .toggle-wrap label::after {
+            content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+            background: #fff; border-radius: 50%; transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+        }
+        .toggle-wrap input:checked + label { background: var(--primary); }
+        .toggle-wrap input:checked + label::after { transform: translateX(20px); }
+        .section-header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+        .section-header-row .section-header { flex: 1; padding: 20px 20px 8px; }
+        .section-header-row .toggle-cell { padding: 20px 20px 20px 0; flex-shrink: 0; }
+
+        /* ── Buttons ── */
+        .btn-add {
+            background: var(--primary); color: #fff; border: none; padding: 8px 16px;
+            border-radius: 6px; font-size: 0.85rem; cursor: pointer; font-weight: 500;
+        }
+        .btn-add:hover { opacity: 0.88; }
+        .btn-outline {
+            background: #fff; color: var(--primary); border: 1px solid var(--border);
+            padding: 6px 14px; border-radius: 6px; font-size: 0.84rem; cursor: pointer;
+        }
+        .btn-outline:hover { background: var(--primary-bg); }
+        .btn-sm { padding: 4px 12px; font-size: 0.78rem; }
+
+        /* ── Inputs ── */
+        .input-custom {
+            border: 1px solid var(--border); border-radius: 6px; padding: 7px 12px;
+            font-size: 0.86rem; width: 100%; outline: none; background: #fff;
+        }
+        .input-custom:focus { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-bg); }
+        select.input-custom { width: auto; cursor: pointer; }
+
+        /* ── Delete btn ── */
+        .delete-btn { color: #bbb; cursor: pointer; font-size: 1.2rem; background: none; border: none; padding: 0 6px; line-height: 1; }
+        .delete-btn:hover { color: var(--red); }
+
+        /* ── Stats ── */
+        .stat-row { display: flex; gap: 16px; margin-bottom: 20px; }
+        .stat-card { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; text-align: center; padding: 20px 12px; }
+        .stat-number { font-size: 1.8rem; font-weight: 700; color: var(--primary); }
+        .stat-label { color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+
+        /* ── Log table ── */
+        .log-table { width: 100%; font-size: 0.82rem; border-collapse: collapse; }
+        .log-table th { padding: 10px 14px; border-bottom: 2px solid var(--border); color: var(--muted); font-weight: 500; font-size: 0.78rem; text-align: left; }
+        .log-table td { padding: 9px 14px; border-bottom: 1px solid var(--border); }
+        .badge-block { background: #fef2f2; color: var(--red); padding: 2px 8px; border-radius: 4px; font-weight: 500; font-size: 0.76rem; }
+        .badge-allow { background: #f0fdf4; color: var(--green); padding: 2px 8px; border-radius: 4px; font-weight: 500; font-size: 0.76rem; }
+
+        /* ── Time Window card ── */
+        .tw-card { background: #fafbfc; border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin: 8px 20px; }
+        .tw-card .tw-header { display: flex; justify-content: space-between; align-items: center; }
+        .tw-card .tw-body { font-size: 0.82rem; color: var(--muted); margin-top: 4px; }
+
+        /* ── Toast ── */
+        .toast-msg { position: fixed; bottom: 28px; right: 28px; background: #1e2128; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 0.84rem; z-index: 9999; display: none; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* ── Setup Guides ── */
+        .guide-steps { counter-reset: step; list-style: none; padding: 0; }
+        .guide-steps li { counter-increment: step; padding: 6px 0 6px 30px; position: relative; font-size: 0.87rem; }
+        .guide-steps li::before { content: counter(step); position: absolute; left: 0; top: 5px; width: 20px; height: 20px; background: var(--primary); color: #fff; border-radius: 50%; text-align: center; font-size: 0.72rem; line-height: 20px; font-weight: 600; }
+
+        /* ── Modal overrides ── */
+        .modal-content { border-radius: 10px; border: none; }
+    </style>
+</head>
+<body>
+
+<div class="toast-msg" id="toast"></div>
+
+<!-- ═══════════════ SIDEBAR ═══════════════ -->
+<aside class="sidebar">
+    <div class="sidebar-brand">
+        <div class="logo">1</div>
+        <div class="name">DNS.1</div>
+    </div>
+    <nav class="sidebar-nav">
+        <div class="section-label">Setup</div>
+        <div class="nav-item" data-tab="setup" onclick="showTab('setup')"><span class="nav-icon">+</span> Setup</div>
+
+        <div class="section-label">Filtering</div>
+        <div class="nav-item" data-tab="parental" onclick="showTab('parental')"><span class="nav-icon">+</span> Parental Control</div>
+        <div class="nav-item" data-tab="allowlist" onclick="showTab('allowlist')"><span class="nav-icon">+</span> Allowlist</div>
+        <div class="nav-item" data-tab="denylist" onclick="showTab('denylist')"><span class="nav-icon">+</span> Denylist</div>
+
+        <div class="section-label">Security & Privacy</div>
+        <div class="nav-item" data-tab="security" onclick="showTab('security')"><span class="nav-icon">+</span> Security</div>
+        <div class="nav-item" data-tab="privacy" onclick="showTab('privacy')"><span class="nav-icon">+</span> Privacy</div>
+
+        <div class="section-label">Monitoring</div>
+        <div class="nav-item" data-tab="analytics" onclick="showTab('analytics')"><span class="nav-icon">+</span> Analytics</div>
+        <div class="nav-item" data-tab="logs" onclick="showTab('logs')"><span class="nav-icon">+</span> Logs</div>
+
+        <div class="section-label">System</div>
+        <div class="nav-item" data-tab="settings" onclick="showTab('settings')"><span class="nav-icon">+</span> Settings</div>
+        <div class="nav-item" data-tab="subscription" onclick="showTab('subscription')"><span class="nav-icon">$</span> Subscription</div>
+    </nav>
+    <div class="sidebar-footer"><div id="sidebarUserInfo">未登录</div><div style="margin-top:4px;"><a href="#" onclick="doLogout()" style="color:#4b5563;font-size:0.72rem;text-decoration:none;">退出登录</a> &nbsp; <a href="/pricing" style="color:#4b5563;font-size:0.72rem;text-decoration:none;">升级</a></div></div>
+</aside>
+
+<!-- ═══════════════ MAIN ═══════════════ -->
+<div class="main">
+    <div class="topbar">
+        <span class="status-dot"></span><span class="status-text">DNS running on :8053</span>
+        <span style="flex:1;"></span>
+        <span style="color:var(--muted);font-size:0.82rem;">Profile:</span>
+        <select class="profile-select" id="profileSelector">
+            <option value="test">test</option>
+        </select>
+    </div>
+
+    <div class="content">
+
+    <!-- ═══════════ Setup ═══════════ -->
+    <div class="tab-panel" id="tab-setup">
+        <div class="section-card">
+            <div class="section-header"><div class="section-title">DNS Server Addresses</div><div class="section-desc">Point your devices or router to these DNS servers to enable filtering.</div></div>
+            <div class="cat-row"><div class="cat-info"><div class="cat-name">IPv4 Address</div><div class="cat-details">Use in your router or device DNS settings.</div></div><code style="font-size:1rem;user-select:all;">127.0.0.1</code></div>
+            <div class="cat-row"><div class="cat-info"><div class="cat-name">Port</div><div class="cat-details">Non-standard port (no root required). For production, configure port forwarding to 53.</div></div><code style="font-size:1rem;">8053</code></div>
+            <div class="cat-row"><div class="cat-info"><div class="cat-name">DNS-over-HTTPS</div><div class="cat-details">DoH endpoint for supported clients.</div></div><code style="font-size:0.82rem;user-select:all;">https://localhost:8081/dns-query</code></div>
+        </div>
+        <div class="section-card">
+            <div class="section-header"><div class="section-title">Platform Setup Guides</div></div>
+            <div class="cat-row" style="cursor:pointer;" onclick="toggleGuide('guide-ios')"><div class="cat-info"><div class="cat-name">iOS (iPhone / iPad)</div><div class="cat-details">Install MDM Profile or configure manually via Wi-Fi settings.</div></div><button class="btn-outline btn-sm">View</button></div>
+            <div id="guide-ios" style="display:none;padding:12px 20px;border-top:1px solid var(--border);">
+                <ol class="guide-steps">
+                    <li>Download the DNS profile from this dashboard</li>
+                    <li>Go to <strong>Settings → General → VPN & Device Management</strong></li>
+                    <li>Tap the installed profile and confirm</li>
+                    <li>For enforcement: Set a ScreenTime passcode, then go to <strong>ScreenTime → Content & Privacy Restrictions → Profile Changes → Don't Allow</strong></li>
+                </ol>
+            </div>
+            <div class="cat-row" style="cursor:pointer;" onclick="toggleGuide('guide-android')"><div class="cat-info"><div class="cat-name">Android</div><div class="cat-details">Use Private DNS (DoT) for system-wide protection.</div></div><button class="btn-outline btn-sm">View</button></div>
+            <div id="guide-android" style="display:none;padding:12px 20px;border-top:1px solid var(--border);">
+                <ol class="guide-steps">
+                    <li>Go to <strong>Settings → Network & Internet → Advanced → Private DNS</strong></li>
+                    <li>Select <strong>Private DNS provider hostname</strong></li>
+                    <li>Enter: <code>dns-pc.example.com</code></li>
+                    <li>Save — all DNS traffic is now filtered</li>
+                </ol>
+            </div>
+            <div class="cat-row" style="cursor:pointer;" onclick="toggleGuide('guide-mac')"><div class="cat-info"><div class="cat-name">macOS</div><div class="cat-details">Configure DNS in System Preferences.</div></div><button class="btn-outline btn-sm">View</button></div>
+            <div id="guide-mac" style="display:none;padding:12px 20px;border-top:1px solid var(--border);">
+                <ol class="guide-steps">
+                    <li>Open <strong>System Preferences → Network</strong></li>
+                    <li>Select your active connection and click <strong>Advanced</strong></li>
+                    <li>Go to the <strong>DNS</strong> tab</li>
+                    <li>Click <strong>+</strong> and add <code>127.0.0.1</code></li>
+                    <li>Remove any other DNS servers, click OK and Apply</li>
+                </ol>
+            </div>
+            <div class="cat-row" style="cursor:pointer;" onclick="toggleGuide('guide-windows')"><div class="cat-info"><div class="cat-name">Windows</div><div class="cat-details">Set DNS server in network settings.</div></div><button class="btn-outline btn-sm">View</button></div>
+            <div id="guide-windows" style="display:none;padding:12px 20px;border-top:1px solid var(--border);">
+                <ol class="guide-steps">
+                    <li>Go to <strong>Settings → Network & Internet → Wi-Fi/Ethernet</strong></li>
+                    <li>Click <strong>DNS server assignment → Edit</strong></li>
+                    <li>Switch to <strong>Manual</strong>, enable IPv4</li>
+                    <li>Enter <code>127.0.0.1</code> and save</li>
+                </ol>
+            </div>
+            <div class="cat-row" style="cursor:pointer;" onclick="toggleGuide('guide-router')"><div class="cat-info"><div class="cat-name">Router</div><div class="cat-details">Protect all devices on your network at once.</div></div><button class="btn-outline btn-sm">View</button></div>
+            <div id="guide-router" style="display:none;padding:12px 20px;border-top:1px solid var(--border);">
+                <ol class="guide-steps">
+                    <li>Log into your router admin panel (typically <code>192.168.1.1</code>)</li>
+                    <li>Find <strong>WAN Settings</strong> or <strong>DHCP Server Settings</strong></li>
+                    <li>Change DNS servers to <code>127.0.0.1</code> (or the server's LAN IP)</li>
+                    <li>Save and reboot the router</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════ Security ═══════════ -->
+    <div class="tab-panel" id="tab-security">
+        <div class="section-card">
+            <div class="section-header"><div class="section-title">Threat Intelligence</div><div class="section-desc">Block known malicious domains using real-time threat feeds.</div></div>
+            <div class="cat-row allowed" id="malwareRow">
+                <div class="cat-info"><div class="cat-name">Malware Protection (CAT_008)</div><div class="cat-details">Blocks domains distributing malware, ransomware, and viruses.</div></div>
+                <div class="toggle-wrap"><input type="checkbox" id="toggleMalware" onchange="onToggleCategory('CAT_008', this.checked)"><label for="toggleMalware"></label></div>
+            </div>
+            <div class="cat-row allowed" id="phishingRow">
+                <div class="cat-info"><div class="cat-name">Phishing Protection</div><div class="cat-details">Blocks known phishing domains and suspicious patterns.</div></div>
+                <div class="toggle-wrap"><input type="checkbox" id="togglePhishing" onchange="onSecurityToggle('phishing_protection', this.checked)"><label for="togglePhishing"></label></div>
+            </div>
+        </div>
+        <div class="section-card allowed" id="dgaCard">
+            <div class="section-header-row">
+                <div class="section-header" style="padding-bottom:14px;"><div class="section-title">AI Threat Detection</div><div class="section-desc" style="margin-bottom:0;">Machine learning detection of DGA (Domain Generation Algorithm) botnet domains. Uses entropy analysis, vowel ratio, bigram density, and length heuristics.</div></div>
+                <div class="toggle-cell"><div class="toggle-wrap"><input type="checkbox" id="toggleDGA" onchange="onSecurityToggle('ai_threat_detection', this.checked)"><label for="toggleDGA"></label></div></div>
+            </div>
+        </div>
+        <div class="section-card allowed" id="cryptoCard">
+            <div class="section-header-row">
+                <div class="section-header" style="padding-bottom:14px;"><div class="section-title">Crypto Mining Protection</div><div class="section-desc" style="margin-bottom:0;">Block browser-based cryptocurrency mining (cryptojacking) domains. Blocks Coinhive, Crypto-Loot, Minero, and 20+ other mining script domains.</div></div>
+                <div class="toggle-cell"><div class="toggle-wrap"><input type="checkbox" id="toggleCrypto" onchange="onSecurityToggle('crypto_jacking_protection', this.checked)"><label for="toggleCrypto"></label></div></div>
+            </div>
+        </div>
+        <div class="section-card allowed" id="tldCard">
+            <div class="section-header-row">
+                <div class="section-header" style="padding-bottom:14px;"><div class="section-title">Suspect TLD Blocking</div><div class="section-desc" style="margin-bottom:0;">Block domains using high-risk top-level domains frequently associated with malware and phishing. .tk .ml .ga .cf .gq .xyz .top .work .surf .click .review .country .stream .download .racing .science .party .date .loan .win .bid .trade .webcam</div></div>
+                <div class="toggle-cell"><div class="toggle-wrap"><input type="checkbox" id="toggleTLD" onchange="onSecurityToggle('suspect_tld_blocking', this.checked)"><label for="toggleTLD"></label></div></div>
+            </div>
+        </div>
+        <div class="section-card allowed" id="bypassCard">
+            <div class="section-header-row">
+                <div class="section-header" style="padding-bottom:14px;"><div class="section-title">Bypass Prevention</div><div class="section-desc" style="margin-bottom:0;">Block VPNs, proxies, Tor, and public encrypted DNS servers (dns.google, cloudflare-dns.com, etc.) that could bypass filtering.</div></div>
+                <div class="toggle-cell"><div class="toggle-wrap"><input type="checkbox" id="toggleBypassSecurity" onchange="onSecurityToggle('bypass_prevention', this.checked)"><label for="toggleBypassSecurity"></label></div></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════ Privacy ═══════════ -->
+    <div class="tab-panel" id="tab-privacy">
+        <div class="section-card">
+            <div class="section-header"><div class="section-title">Log Retention</div><div class="section-desc">Control how long DNS query logs are kept. Shorter = more privacy.</div></div>
+            <div class="cat-row">
+                <div class="cat-info"><div class="cat-name">Retention Period</div><div class="cat-details">Default: 7 days. Can be set to 0 (no logging).</div></div>
+                <select class="input-custom" id="logRetentionSelect" onchange="onLogRetentionChange(this.value)">
+                    <option value="0">No logs</option>
+                    <option value="7" selected>7 days</option>
+                    <option value="30">30 days</option>
+                    <option value="365">1 year</option>
+                    <option value="730">2 years</option>
+                </select>
+            </div>
+        </div>
+        <div class="section-card">
+            <div class="section-header"><div class="section-title">Data Privacy</div><div class="section-desc">We never sell or share your data. All logs encrypted at rest (AES-256).</div></div>
+            <div class="cat-row">
+                <div class="cat-info"><div class="cat-name">GDPR Auto-Delete</div><div class="cat-details">Automatically purge personal data and logs after retention period expires.</div></div>
+                <div class="toggle-wrap"><input type="checkbox" id="toggleGDPR" onchange="onGDPRToggle(this.checked)"><label for="toggleGDPR"></label></div>
+            </div>
+            <div class="cat-row">
+                <div class="cat-info"><div class="cat-name">Storage Region</div></div>
+                <select id="storageRegion" class="input-custom" onchange="onStorageRegionChange(this.value)">
+                    <option value="us">United States</option><option value="eu">European Union</option><option value="ch">Switzerland</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════ Parental Control ═══════════ -->
+    <div class="tab-panel active" id="tab-parental">
+        <div class="section-card">
+            <div class="section-header"><div class="section-title">Categories</div><div class="section-desc">Restrict entire categories of websites and apps with one click. Changes take effect immediately.</div></div>
+            <div id="categoryList"></div>
+        </div>
+        <div class="section-card">
+            <div class="section-header"><div class="section-title">Entertainment Time</div><div class="section-desc">Set time windows during the week when blocked categories are allowed (e.g. games only on weekends 14:00-18:00).</div></div>
+            <div id="timeWindowList"></div>
+            <div class="section-footer"><button class="btn-add" onclick="showTimeWindowForm()">Add Entertainment Time</button></div>
+        </div>
+        <div class="section-card allowed" id="safeSearchCard">
+            <div class="section-header-row">
+                <div class="section-header" style="padding-bottom:14px;"><div class="section-title">SafeSearch</div><div class="section-desc" style="margin-bottom:0;">Enforce SafeSearch on major search engines via DNS rewriting. Google → forcesafesearch.google.com, Bing → strict.bing.com, DuckDuckGo → safe.duckduckgo.com</div></div>
+                <div class="toggle-cell"><div class="toggle-wrap"><input type="checkbox" id="toggleSafeSearch" onchange="onSettingsChange()"><label for="toggleSafeSearch"></label></div></div>
+            </div>
+        </div>
+        <div class="section-card allowed" id="youtubeCard">
+            <div class="section-header-row">
+                <div class="section-header" style="padding-bottom:14px;"><div class="section-title">YouTube Restricted Mode</div><div class="section-desc" style="margin-bottom:0;">Hide adult content on YouTube and prevent embedded adult videos on other sites. Also hides all comments.</div></div>
+                <div class="toggle-cell"><div class="toggle-wrap"><input type="checkbox" id="toggleYoutube" onchange="onSettingsChange()"><label for="toggleYoutube"></label></div></div>
+            </div>
+        </div>
+        <div class="section-card allowed" id="bypassParentalCard">
+            <div class="section-header-row">
+                <div class="section-header" style="padding-bottom:14px;"><div class="section-title">Bypass Prevention</div><div class="section-desc" style="margin-bottom:0;">Block VPNs, proxies, Tor, and public encrypted DNS servers (dns.google, cloudflare-dns.com, etc.) that could bypass filtering.</div></div>
+                <div class="toggle-cell"><div class="toggle-wrap"><input type="checkbox" id="toggleBypass" onchange="onSettingsChange()"><label for="toggleBypass"></label></div></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════ Denylist ═══════════ -->
+    <div class="tab-panel" id="tab-denylist">
+        <div class="section-card">
+            <div class="section-header">
+                <div class="section-title">Denylist</div>
+                <div class="section-desc">Domains on this list are always blocked, regardless of other settings.</div>
+                <div style="display:flex;gap:8px;margin-top:12px;">
+                    <input type="text" id="denylistInput" class="input-custom" placeholder="Domain (e.g. adult-site.com)" style="flex:2;">
+                    <input type="text" id="denylistReason" class="input-custom" placeholder="Reason (optional)" style="flex:1;">
+                    <button class="btn-add" onclick="addDenylist()">Add</button>
+                </div>
+            </div>
+            <div id="denylistItems"></div>
+        </div>
+    </div>
+
+    <!-- ═══════════ Allowlist ═══════════ -->
+    <div class="tab-panel" id="tab-allowlist">
+        <div class="section-card">
+            <div class="section-header">
+                <div class="section-title">Allowlist</div>
+                <div class="section-desc">All filtering is disabled for domains on this list. Use for trusted educational and reference sites.</div>
+                <div style="display:flex;gap:8px;margin-top:12px;">
+                    <input type="text" id="allowlistInput" class="input-custom" placeholder="Add domain (e.g. khanacademy.org)" style="flex:1;">
+                    <button class="btn-add" onclick="addToAllowlist()">Add</button>
+                </div>
+            </div>
+            <div id="allowlistItems"></div>
+        </div>
+    </div>
+
+    <!-- ═══════════ Analytics ═══════════ -->
+    <div class="tab-panel" id="tab-analytics">
+        <div class="stat-row" id="statCards"></div>
+        <div class="section-card">
+            <div class="section-header"><div class="section-title">Top Blocked Domains</div><div class="section-desc">Most frequently blocked in current session.</div></div>
+            <div id="topBlockedList"></div>
+        </div>
+    </div>
+
+    <!-- ═══════════ Logs ═══════════ -->
+    <div class="tab-panel" id="tab-logs">
+        <div class="section-card">
+            <div class="section-header"><div class="section-title">Query Logs</div><div class="section-desc">Latest DNS query decisions (up to 100).</div></div>
+            <div style="overflow-x:auto;"><table class="log-table"><thead><tr><th>Time</th><th>Domain</th><th>Decision</th><th>Reason</th><th>Latency</th></tr></thead><tbody id="logTableBody"></tbody></table></div>
+            <div class="section-footer"><button class="btn-outline" onclick="loadHistory()">Refresh Logs</button></div>
+        </div>
+    </div>
+
+    <!-- ═══════════ Settings ═══════════ -->
+    <div class="tab-panel" id="tab-settings">
+        <div class="section-card">
+            <div class="section-header"><div class="section-title">Current Profile Configuration</div></div>
+            <div class="cat-row"><div class="cat-info"><div class="cat-name">Profile ID</div></div><code id="settingsProfileId">-</code></div>
+            <div class="cat-row allowed" id="settingsSafeSearchRow"><div class="cat-info"><div class="cat-name">SafeSearch</div></div><div class="toggle-wrap"><input type="checkbox" id="settingsToggleSafeSearch" onchange="onSettingsToggle('safe_search', this.checked)"><label for="settingsToggleSafeSearch"></label></div></div>
+            <div class="cat-row allowed" id="settingsYoutubeRow"><div class="cat-info"><div class="cat-name">YouTube Restricted</div></div><div class="toggle-wrap"><input type="checkbox" id="settingsToggleYoutube" onchange="onSettingsToggle('youtube_restricted', this.checked)"><label for="settingsToggleYoutube"></label></div></div>
+            <div class="cat-row allowed" id="settingsBypassRow"><div class="cat-info"><div class="cat-name">Bypass Prevention</div></div><div class="toggle-wrap"><input type="checkbox" id="settingsToggleBypass" onchange="onSettingsToggle('bypass_prevention', this.checked)"><label for="settingsToggleBypass"></label></div></div>
+            <div class="cat-row allowed" id="settingsPhishingRow"><div class="cat-info"><div class="cat-name">Phishing Protection</div></div><div class="toggle-wrap"><input type="checkbox" id="settingsTogglePhishing" onchange="onSettingsToggle('phishing_protection', this.checked)"><label for="settingsTogglePhishing"></label></div></div>
+            <div class="cat-row allowed" id="settingsDGARow"><div class="cat-info"><div class="cat-name">AI Threat Detection</div></div><div class="toggle-wrap"><input type="checkbox" id="settingsToggleDGA" onchange="onSettingsToggle('ai_threat_detection', this.checked)"><label for="settingsToggleDGA"></label></div></div>
+            <div class="cat-row allowed" id="settingsCryptoRow"><div class="cat-info"><div class="cat-name">Crypto Mining Protection</div></div><div class="toggle-wrap"><input type="checkbox" id="settingsToggleCrypto" onchange="onSettingsToggle('crypto_jacking_protection', this.checked)"><label for="settingsToggleCrypto"></label></div></div>
+            <div class="cat-row allowed" id="settingsTLDRow"><div class="cat-info"><div class="cat-name">Suspect TLD Blocking</div></div><div class="toggle-wrap"><input type="checkbox" id="settingsToggleTLD" onchange="onSettingsToggle('suspect_tld_blocking', this.checked)"><label for="settingsToggleTLD"></label></div></div>
+            <div class="cat-row"><div class="cat-info"><div class="cat-name">Storage Region</div></div><select id="settingsToggleRegion" class="input-custom" onchange="onSettingsToggle('storage_region', this.value)"><option value="us">United States</option><option value="eu">European Union</option><option value="ch">Switzerland</option></select></div>
+            <div class="cat-row"><div class="cat-info"><div class="cat-name">Blocked Categories</div></div><code id="settingsCategories">-</code></div>
+        </div>
+        <div class="section-card">
+            <div class="section-header"><div class="section-title">Server Info</div></div>
+            <div class="cat-row"><div class="cat-info"><div class="cat-name">API Server</div></div><code>localhost:8081</code></div>
+            <div class="cat-row"><div class="cat-info"><div class="cat-name">DNS Server</div></div><code>UDP :8053</code></div>
+            <div class="cat-row"><div class="cat-info"><div class="cat-name">Storage Mode</div></div><code id="settingsMode">-</code></div>
+            <div class="cat-row"><div class="cat-info"><div class="cat-name">Version</div></div><code>v1.0.0</code></div>
+        </div>
+    </div>
+
+    <!-- ═══════════ Subscription ═══════════ -->
+    <div class="tab-panel" id="tab-subscription">
+        <div class="section-card">
+            <div class="section-header"><div class="section-title">Your Plan</div><div class="section-desc">Manage your subscription and billing.</div></div>
+            <div id="subscriptionDetails">
+                <div class="cat-row"><div class="cat-info"><div class="cat-name">Plan</div></div><code id="subPlanName">-</code></div>
+                <div class="cat-row"><div class="cat-info"><div class="cat-name">Status</div></div><code id="subStatus">-</code></div>
+                <div class="cat-row"><div class="cat-info"><div class="cat-name">Trial Remaining</div></div><code id="subTrialDays">-</code></div>
+                <div class="cat-row"><div class="cat-info"><div class="cat-name">Period End</div></div><code id="subPeriodEnd">-</code></div>
+            </div>
+            <div class="section-footer" id="subActionArea">
+                <a href="/pricing" class="btn-add" style="text-decoration:none;display:inline-block;">Upgrade Plan</a>
+            </div>
+        </div>
+        <div class="section-card">
+            <div class="section-header"><div class="section-title">Available Plans</div></div>
+            <div id="subPlansList" style="display:flex;gap:16px;padding:16px 20px;flex-wrap:wrap;"></div>
+        </div>
+    </div>
+
+    </div><!-- /.content -->
+</div><!-- /.main -->
+
+<!-- Time Window Modal -->
+<div class="modal fade" id="timeWindowModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Add Entertainment Time</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+            <div class="mb-3"><label class="form-label">Name</label><input type="text" class="input-custom" id="twName" placeholder="e.g. Weekend Gaming"></div>
+            <div class="mb-3"><label class="form-label">Days</label>
+                <div class="d-flex flex-wrap gap-2" id="twDays">
+                    <label class="me-3"><input type="checkbox" value="0"> Sun</label>
+                    <label class="me-3"><input type="checkbox" value="1"> Mon</label>
+                    <label class="me-3"><input type="checkbox" value="2"> Tue</label>
+                    <label class="me-3"><input type="checkbox" value="3"> Wed</label>
+                    <label class="me-3"><input type="checkbox" value="4"> Thu</label>
+                    <label class="me-3"><input type="checkbox" value="5"> Fri</label>
+                    <label class="me-3"><input type="checkbox" value="6"> Sat</label>
+                </div>
+            </div>
+            <div class="row mb-3"><div class="col"><label class="form-label">Start</label><input type="time" class="input-custom" id="twStart" value="14:00"></div><div class="col"><label class="form-label">End</label><input type="time" class="input-custom" id="twEnd" value="18:00"></div></div>
+            <div class="mb-3"><label class="form-label">Target Category</label>
+                <select class="input-custom" id="twTargetCat">
+                    <option value="CAT_005">CAT_005 — Online Games</option>
+                    <option value="CAT_006">CAT_006 — Video Streaming</option>
+                    <option value="CAT_007">CAT_007 — Social Media</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer"><button class="btn-outline" data-bs-dismiss="modal">Cancel</button><button class="btn-add" onclick="addTimeWindow()">Save</button></div>
+    </div></div>
+</div>
+
+<script src="/static/js/app.js"></script>
+<script>
+// Wrap localStorage access in try/catch for private browsing mode compatibility
+let JWT_TOKEN = '';
+try { JWT_TOKEN = localStorage.getItem('dns1_token') || ''; } catch(e) {}
+let PROFILE = 'test';
+let API_BASE = `/api/v1/profiles/${PROFILE}`;
+
+function authHeaders() {
+    let token = '';
+    try { token = localStorage.getItem('dns1_token') || ''; } catch(e) {}
+    return token ? { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+}
+
+function doLogout() {
+    localStorage.removeItem('dns1_token');
+    window.location.href = '/login';
+}
+
+async function loadUserInfo() {
+    if (!JWT_TOKEN) return;
+    try {
+        const r = await fetch('/api/v1/user/profile', { headers: authHeaders() });
+        if (r.status === 401) { doLogout(); return; }
+        const data = await r.json();
+        const u = data.user || {};
+        const sub = data.subscription || {};
+        const planName = sub.plan_id === 'free' ? 'Free' : (sub.plan_id || 'Free');
+        const status = sub.status || 'none';
+        const trialDays = data.trial_remaining_days || 0;
+        let statusHtml = `<span style="color:var(--primary);">${planName}</span>`;
+        if (status === 'trialing' && trialDays > 0) {
+            statusHtml += `<br><small style="color:var(--green);">${trialDays} days trial</small>`;
+        } else if (status === 'active') {
+            statusHtml += `<br><small style="color:var(--green);">Active</small>`;
+        } else {
+            statusHtml += `<br><small style="color:var(--muted);">${status}</small>`;
+        }
+        document.getElementById('sidebarUserInfo').innerHTML = `${u.email || '用户'}<br>${statusHtml}`;
+        PROFILE = u.id || 'test';
+        API_BASE = `/api/v1/profiles/${PROFILE}`;
+        document.getElementById('profileSelector').value = PROFILE;
+    } catch(e) { console.error(e); }
+}
+
+function setProfile(id) {
+    PROFILE = id;
+    API_BASE = `/api/v1/profiles/${PROFILE}`;
+    document.getElementById('profileSelector').value = id;
+    loadAllData();
+}
+
+async function loadProfiles() {
+    try {
+        const r = await fetch('/api/v1/profiles', { headers: authHeaders() });
+        if (r.status === 401) { doLogout(); return; }
+        const data = await r.json();
+        const sel = document.getElementById('profileSelector');
+        sel.innerHTML = '';
+        data.profiles.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.profile_id;
+            opt.textContent = p.name || p.profile_id;
+            if (p.profile_id === PROFILE) opt.selected = true;
+            sel.appendChild(opt);
+        });
+    } catch(e) { console.error('Failed to load profiles', e); }
+}
+
+const CATEGORIES = [
+    { id: 'CAT_001', name: 'Porn', desc: 'Blocks adult and pornographic content including prostitution sites and similar domains.' },
+    { id: 'CAT_002', name: 'Gambling', desc: 'Blocks gambling and betting platforms.' },
+    { id: 'CAT_003', name: 'Dating', desc: 'Blocks all dating websites and apps.' },
+    { id: 'CAT_004', name: 'Piracy', desc: 'Blocks P2P sites, copyright-infringing streaming, and illegal content distribution.' },
+    { id: 'CAT_005', name: 'Online Games', desc: 'Blocks game sites, apps, and networks (Xbox Live, PSN, etc.).' },
+    { id: 'CAT_006', name: 'Video Streaming', desc: 'Blocks video streaming (YouTube, Netflix, TikTok) and video social networks.' },
+    { id: 'CAT_007', name: 'Social Media', desc: 'Blocks social media platforms and apps.' },
+    { id: 'CAT_008', name: 'Malware', desc: 'Blocks known malware distribution domains.' },
+];
+
+let categoryConfig = {};
+allowlist = [];
+denylist = [];
+timeWindows = [];
+let profileConfig = {};
+
+// ===== Init =====
+document.addEventListener('DOMContentLoaded', async () => {
+    if (!JWT_TOKEN) { window.location.href = '/login'; return; }
+    document.querySelectorAll('.sidebar .nav-item').forEach(item => {
+        item.addEventListener('click', () => showTab(item.dataset.tab));
+    });
+    document.getElementById('profileSelector').addEventListener('change', e => setProfile(e.target.value));
+    await loadUserInfo();
+    loadProfiles();
+    loadAllData();
+});
+
+function loadAllData() {
+    loadParentalConfig();
+    loadAllowlist();
+    loadDenylist();
+    loadTimeWindows();
+    loadHistory();
+    loadStats();
+}
+
+// ===== Navigation =====
+function showTab(tab) {
+    try {
+        document.querySelectorAll('.sidebar .nav-item, .tab-panel').forEach(el => el.classList.remove('active'));
+        document.querySelector(`.sidebar .nav-item[data-tab="${tab}"]`)?.classList.add('active');
+        document.getElementById(`tab-${tab}`)?.classList.add('active');
+    } catch (e) { console.error('showTab error:', e); }
+    // Load data after switching tab (failures are handled internally)
+    if (tab === 'allowlist') loadAllowlist();
+    if (tab === 'denylist') loadDenylist();
+    if (tab === 'logs') loadHistory();
+    if (tab === 'analytics') loadStats();
+    if (tab === 'settings') loadSettings();
+    if (tab === 'subscription') loadSubscription();
+    if (tab === 'parental') { loadParentalConfig(); loadTimeWindows(); }
+    if (tab === 'security') { loadParentalConfig(); }
+    if (tab === 'privacy') { loadParentalConfig(); }
+}
+
+function toggleGuide(id) {
+    const el = document.getElementById(id);
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// ===== Toast =====
+function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.style.display = 'block';
+    t.style.background = 'var(--primary)';
+    setTimeout(() => t.style.display = 'none', 2500);
+}
+function showToast(msg, isError) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.style.display = 'block';
+    t.style.background = isError ? 'var(--red)' : '#1e2128';
+    setTimeout(() => t.style.display = 'none', 3000);
+}
+
+// ===== API Helpers =====
+async function api(path, opts = {}) {
+    let r;
+    try {
+        r = await fetch(API_BASE + path, { headers: authHeaders(), ...opts });
+    } catch (e) {
+        showToast('Network error — check your connection', true);
+        throw e;
+    }
+    if (r.status === 401) { doLogout(); throw new Error('Unauthorized'); }
+    if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${r.status}`);
+    }
+    return r.json();
+}
+
+// ===== Parental Control =====
+async function loadParentalConfig() {
+    try {
+        const data = await api('/parental-control');
+        profileConfig = data;
+        if (data.blocked_categories) {
+            categoryConfig = {};
+            data.blocked_categories.forEach(c => categoryConfig[c] = true);
+        }
+        document.getElementById('toggleSafeSearch').checked = data.safe_search || false;
+        document.getElementById('toggleYoutube').checked = data.youtube_restricted || false;
+        document.getElementById('toggleBypass').checked = data.bypass_prevention || false;
+        document.getElementById('toggleMalware').checked = categoryConfig['CAT_008'] || false;
+        document.getElementById('logRetentionSelect').value = data.log_retention_days || 7;
+        renderCategoryList();
+        saveSettingsFromConfig(data);
+    } catch (e) { console.error(e); }
+}
+
+function renderCategoryList() {
+    document.getElementById('categoryList').innerHTML = CATEGORIES.map(cat => {
+        const blocked = categoryConfig[cat.id] || false;
+        return `<div class="cat-row ${blocked ? 'blocked' : 'allowed'}">
+            <div class="cat-info"><div class="cat-name">${cat.name}</div><div class="cat-details">${cat.desc}</div></div>
+            <div class="toggle-wrap"><input type="checkbox" id="cat-${cat.id}" class="cat-toggle" data-cat="${cat.id}" ${blocked ? 'checked' : ''} onchange="onToggleCategory('${cat.id}', this.checked)"><label for="cat-${cat.id}"></label></div>
+        </div>`;
+    }).join('');
+}
+
+async function onToggleCategory(catId, blocked) {
+    const body = {}; body[catId] = blocked;
+    try {
+        await api('/parental-control/categories', { method: 'PATCH', body: JSON.stringify(body) });
+        categoryConfig[catId] = blocked;
+        renderCategoryList();
+        if (catId === 'CAT_008') {
+            document.getElementById('toggleMalware').checked = blocked;
+            const mwRow = document.getElementById('malwareRow');
+            if (mwRow) { mwRow.classList.toggle('blocked', blocked); mwRow.classList.toggle('allowed', !blocked); }
+        }
+        toast(`${blocked ? 'Blocked' : 'Allowed'}: ${catId}`);
+    } catch (e) { toast('Failed'); }
+}
+
+// ===== Settings (SafeSearch, YouTube, Bypass) =====
+async function onSettingsChange() {
+    const ss = document.getElementById('toggleSafeSearch').checked;
+    const yt = document.getElementById('toggleYoutube').checked;
+    const bp = document.getElementById('toggleBypass').checked;
+    try {
+        await api('/settings', { method: 'PATCH', body: JSON.stringify({ safe_search: ss, youtube_restricted: yt, bypass_prevention: bp }) });
+        toast('Settings updated');
+    } catch (e) { toast('Failed'); }
+}
+
+async function onLogRetentionChange(val) {
+    try {
+        await api('/settings', { method: 'PATCH', body: JSON.stringify({ log_retention_days: parseInt(val) }) });
+        toast('Log retention: ' + (val === '0' ? 'No logs' : val + ' days'));
+    } catch (e) { toast('Failed'); }
+}
+
+async function saveSettingsFromConfig(data) {
+    if (data.safe_search !== undefined) document.getElementById('toggleSafeSearch').checked = data.safe_search;
+    if (data.youtube_restricted !== undefined) document.getElementById('toggleYoutube').checked = data.youtube_restricted;
+    if (data.bypass_prevention !== undefined) { document.getElementById('toggleBypass').checked = data.bypass_prevention; document.getElementById('toggleBypassSecurity').checked = data.bypass_prevention; updateRowStyle('bypass_prevention', data.bypass_prevention); }
+    if (data.phishing_protection !== undefined) { document.getElementById('togglePhishing').checked = data.phishing_protection; updateRowStyle('phishing_protection', data.phishing_protection); }
+    if (data.ai_threat_detection !== undefined) { document.getElementById('toggleDGA').checked = data.ai_threat_detection; updateRowStyle('ai_threat_detection', data.ai_threat_detection); }
+    if (data.crypto_jacking_protection !== undefined) { document.getElementById('toggleCrypto').checked = data.crypto_jacking_protection; updateRowStyle('crypto_jacking_protection', data.crypto_jacking_protection); }
+    if (data.suspect_tld_blocking !== undefined) { document.getElementById('toggleTLD').checked = data.suspect_tld_blocking; updateRowStyle('suspect_tld_blocking', data.suspect_tld_blocking); }
+    if (data.storage_region !== undefined) document.getElementById('storageRegion').value = data.storage_region;
+    if (data.log_retention_days !== undefined) document.getElementById('logRetentionSelect').value = String(data.log_retention_days);
+    if (data.blocked_categories) {
+        const mwRow = document.getElementById('malwareRow');
+        if (mwRow) {
+            const blocked = data.blocked_categories.includes('CAT_008');
+            mwRow.classList.toggle('blocked', blocked);
+            mwRow.classList.toggle('allowed', !blocked);
+        }
+    }
+    document.getElementById('settingsProfileId').textContent = data.profile_id || '-';
+    if (data.safe_search !== undefined) { const el = document.getElementById('settingsToggleSafeSearch'); if (el) el.checked = data.safe_search; }
+    if (data.youtube_restricted !== undefined) { const el = document.getElementById('settingsToggleYoutube'); if (el) el.checked = data.youtube_restricted; }
+    if (data.bypass_prevention !== undefined) { const el = document.getElementById('settingsToggleBypass'); if (el) el.checked = data.bypass_prevention; }
+    if (data.phishing_protection !== undefined) { const el = document.getElementById('settingsTogglePhishing'); if (el) el.checked = data.phishing_protection; updateSettingsRowStyle('settingsPhishingRow', data.phishing_protection); }
+    if (data.ai_threat_detection !== undefined) { const el = document.getElementById('settingsToggleDGA'); if (el) el.checked = data.ai_threat_detection; updateSettingsRowStyle('settingsDGARow', data.ai_threat_detection); }
+    if (data.crypto_jacking_protection !== undefined) { const el = document.getElementById('settingsToggleCrypto'); if (el) el.checked = data.crypto_jacking_protection; updateSettingsRowStyle('settingsCryptoRow', data.crypto_jacking_protection); }
+    if (data.suspect_tld_blocking !== undefined) { const el = document.getElementById('settingsToggleTLD'); if (el) el.checked = data.suspect_tld_blocking; updateSettingsRowStyle('settingsTLDRow', data.suspect_tld_blocking); }
+    if (data.storage_region !== undefined) { const el = document.getElementById('settingsToggleRegion'); if (el) el.value = data.storage_region; }
+}
+
+// ===== Allowlist =====
+async function loadAllowlist() {
+    try {
+        const data = await api('/allowlist');
+        allowlist = data.allowlist || [];
+        renderAllowlist();
+    } catch (e) { console.error(e); }
+}
+
+function renderAllowlist() {
+    const c = document.getElementById('allowlistItems');
+    if (allowlist.length === 0) { c.innerHTML = '<div class="cat-row"><div class="cat-info"><div class="cat-details">No domains in allowlist. Add trusted domains to bypass all filtering.</div></div></div>'; return; }
+    c.innerHTML = allowlist.map(d => `<div class="cat-row allowed"><div class="cat-info"><div class="cat-name">${d}</div></div><button class="delete-btn" onclick="removeFromAllowlist('${d}')">&times;</button></div>`).join('');
+}
+
+async function addToAllowlist() {
+    const input = document.getElementById('allowlistInput');
+    const domain = input.value.trim();
+    if (!domain) return;
+    try {
+        await api('/allowlist', { method: 'POST', body: JSON.stringify({ domain, allowed: true }) });
+        allowlist.push(domain);
+        input.value = '';
+        renderAllowlist();
+        toast('Added: ' + domain);
+    } catch (e) { toast('Failed'); }
+}
+
+async function removeFromAllowlist(domain) {
+    try {
+        await api(`/allowlist/${encodeURIComponent(domain)}`, { method: 'DELETE' });
+        allowlist = allowlist.filter(d => d !== domain);
+        renderAllowlist();
+        toast('Removed: ' + domain);
+    } catch (e) { toast('Failed'); }
+}
+
+// ===== Denylist =====
+async function loadDenylist() {
+    try {
+        const data = await api('/denylist');
+        denylist = data.denylist || [];
+        renderDenylist();
+    } catch (e) { console.error(e); }
+}
+
+function renderDenylist() {
+    const c = document.getElementById('denylistItems');
+    if (denylist.length === 0) { c.innerHTML = '<div class="cat-row"><div class="cat-info"><div class="cat-details">No domains in denylist. Add domains to always block.</div></div></div>'; return; }
+    c.innerHTML = denylist.map(d => {
+        const domain = typeof d === 'string' ? d : d.domain;
+        const reason = typeof d === 'object' && d.reason ? ` — ${d.reason}` : '';
+        return `<div class="cat-row blocked"><div class="cat-info"><div class="cat-name">${domain}</div>${reason ? `<div class="cat-details">${d.reason}</div>` : ''}</div><button class="delete-btn" onclick="removeDenylist('${domain}')">&times;</button></div>`;
+    }).join('');
+}
+
+async function addDenylist() {
+    const input = document.getElementById('denylistInput');
+    const reasonInput = document.getElementById('denylistReason');
+    const domain = input.value.trim();
+    if (!domain) return;
+    const reason = reasonInput ? reasonInput.value.trim() : '';
+    try {
+        await api('/denylist', { method: 'POST', body: JSON.stringify({ domain, reason }) });
+        denylist.push({ domain, reason });
+        input.value = '';
+        if (reasonInput) reasonInput.value = '';
+        renderDenylist();
+        toast('Added: ' + domain);
+    } catch (e) { toast('Failed'); }
+}
+
+async function removeDenylist(domain) {
+    try {
+        await api(`/denylist/${encodeURIComponent(domain)}`, { method: 'DELETE' });
+        denylist = denylist.filter(d => (typeof d === 'string' ? d : d.domain) !== domain);
+        renderDenylist();
+        toast('Removed: ' + domain);
+    } catch (e) { toast('Failed'); }
+}
+
+// ===== Time Windows =====
+async function loadTimeWindows() {
+    try {
+        const data = await api('/time-windows');
+        timeWindows = data.time_windows || [];
+        renderTimeWindows();
+    } catch (e) { console.error(e); }
+}
+
+function renderTimeWindows() {
+    const c = document.getElementById('timeWindowList');
+    if (timeWindows.length === 0) { c.innerHTML = '<div class="cat-row"><div class="cat-info"><div class="cat-details">No time windows configured. Add one to set allowed times for entertainment.</div></div></div>'; return; }
+    const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    c.innerHTML = timeWindows.map(tw => {
+        const days = (tw.days_of_week || []).map(d => dayNames[d]).join(', ');
+        const target = tw.target_value || (tw.targets && tw.targets[0] ? tw.targets[0].value : '');
+        return `<div class="tw-card">
+            <div class="tw-header"><strong>${tw.name || 'Time Window'}</strong><button class="delete-btn" onclick="removeTimeWindow('${tw.id}')">&times;</button></div>
+            <div class="tw-body">${days} &middot; ${tw.start_time || '14:00'}–${tw.end_time || '18:00'} &middot; ${target}</div>
+        </div>`;
+    }).join('');
+}
+
+function showTimeWindowForm() { new bootstrap.Modal(document.getElementById('timeWindowModal')).show(); }
+
+async function addTimeWindow() {
+    const name = document.getElementById('twName').value || 'Entertainment';
+    const days = Array.from(document.querySelectorAll('#twDays input:checked')).map(cb => parseInt(cb.value));
+    const start = document.getElementById('twStart').value;
+    const end = document.getElementById('twEnd').value;
+    const targetCat = document.getElementById('twTargetCat').value;
+    if (days.length === 0) { toast('Select at least one day'); return; }
+    try {
+        await api('/time-windows', { method: 'POST', body: JSON.stringify({ name, days_of_week: days, start_time: start, end_time: end, timezone: 'Asia/Shanghai', target_type: 'CATEGORY', target_value: targetCat }) });
+        bootstrap.Modal.getInstance(document.getElementById('timeWindowModal')).hide();
+        toast('Time window added');
+        loadTimeWindows();
+    } catch (e) { toast('Failed'); }
+}
+
+async function removeTimeWindow(id) {
+    try {
+        await api(`/time-windows/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        timeWindows = timeWindows.filter(tw => tw.id !== id);
+        renderTimeWindows();
+        toast('Removed');
+    } catch (e) { toast('Failed'); }
+}
+
+// ===== Stats =====
+async function loadStats() {
+    try {
+        const data = await api('/stats');
+        const stats = data.top_blocked || {};
+        const entries = Object.entries(stats);
+        const total = entries.reduce((s, [,c]) => s + c, 0);
+        document.getElementById('statCards').innerHTML = `
+            <div class="stat-card"><div class="stat-number">${total}</div><div class="stat-label">Total Blocked</div></div>
+            <div class="stat-card"><div class="stat-number">${entries.length}</div><div class="stat-label">Unique Domains</div></div>
+            <div class="stat-card"><div class="stat-number">${total > 0 ? Math.round(total / Math.max(entries.length, 1)) : 0}</div><div class="stat-label">Avg Blocks/Domain</div></div>`;
+        const list = document.getElementById('topBlockedList');
+        if (entries.length === 0) { list.innerHTML = '<div class="cat-row"><div class="cat-info"><div class="cat-details">No blocked queries yet. Run DNS queries to populate.</div></div></div>'; return; }
+        const maxCount = Math.max(...entries.map(([,c]) => c));
+        list.innerHTML = entries.sort((a,b) => b[1]-a[1]).map(([d,c]) => `
+            <div class="cat-row blocked">
+                <div class="cat-info"><div class="cat-name">${d}</div><div class="cat-details">${c} block${c>1?'s':''}</div></div>
+                <div style="width:100px;background:#e5e7eb;border-radius:4px;height:8px;overflow:hidden;"><div style="width:${Math.round(c/maxCount*100)}%;background:var(--red);height:100%;border-radius:4px;"></div></div>
+                <span style="font-size:0.8rem;color:var(--muted);margin-left:8px;">${c}</span>
+            </div>`).join('');
+    } catch (e) { console.error(e); }
+}
+
+// ===== Logs =====
+async function loadHistory() {
+    try {
+        const data = await api('/history');
+        const history = data.history || [];
+        const tbody = document.getElementById('logTableBody');
+        if (history.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px;">No queries yet. Run <code>dig @127.0.0.1 -p 8053 &lt;domain&gt;</code> to test.</td></tr>'; return; }
+        tbody.innerHTML = history.slice(0, 100).map(h => {
+            let badge = h.decision === 'BLOCK' ? '<span class="badge-block">BLOCK</span>' :
+                        h.decision === 'ALLOW' ? '<span class="badge-allow">ALLOW</span>' :
+                        `<span class="badge-block">${h.decision}</span>`;
+            return `<tr><td>${h.ts || '-'}</td><td>${h.domain || '-'}</td><td>${badge}</td><td style="font-size:0.8rem;">${h.reason || '-'}</td><td>${typeof h.latency_ms === 'number' ? h.latency_ms.toFixed(2)+'ms' : '-'}</td></tr>`;
+        }).join('');
+    } catch (e) { console.error(e); }
+}
+
+// ===== Security & Privacy Handlers =====
+async function onSecurityToggle(field, value) {
+    try {
+        const body = {};
+        body[field] = value;
+        await api('/settings', { method: 'PATCH', body: JSON.stringify(body) });
+        showToast('Security setting updated');
+        updateRowStyle(field, value);
+        if (field === 'bypass_prevention') { document.getElementById('toggleBypass').checked = value; updateSettingsRowStyle('settingsBypassRow', value); }
+        if (field === 'phishing_protection') updateSettingsRowStyle('settingsPhishingRow', value);
+        if (field === 'ai_threat_detection') updateSettingsRowStyle('settingsDGARow', value);
+        if (field === 'crypto_jacking_protection') updateSettingsRowStyle('settingsCryptoRow', value);
+        if (field === 'suspect_tld_blocking') updateSettingsRowStyle('settingsTLDRow', value);
+    } catch(e) { console.error(e); showToast('Failed to update setting', true); }
+}
+
+function updateRowStyle(field, value) {
+    const rowMap = {
+        'phishing_protection': 'phishingRow',
+        'ai_threat_detection': 'dgaCard',
+        'crypto_jacking_protection': 'cryptoCard',
+        'suspect_tld_blocking': 'tldCard',
+        'bypass_prevention': 'bypassCard',
+    };
+    const elId = rowMap[field];
+    if (elId) {
+        const el = document.getElementById(elId);
+        if (el) {
+            el.classList.toggle('blocked', value);
+            el.classList.toggle('allowed', !value);
+        }
+    }
+}
+
+// ===== Settings Tab Toggles =====
+async function onSettingsToggle(field, value) {
+    try {
+        const body = {};
+        body[field] = value;
+        await api('/settings', { method: 'PATCH', body: JSON.stringify(body) });
+        if (field === 'safe_search') document.getElementById('toggleSafeSearch').checked = value;
+        if (field === 'youtube_restricted') document.getElementById('toggleYoutube').checked = value;
+        if (field === 'bypass_prevention') { document.getElementById('toggleBypass').checked = value; document.getElementById('toggleBypassSecurity').checked = value; updateRowStyle(field, value); updateSettingsRowStyle('settingsBypassRow', value); }
+        if (field === 'phishing_protection') { document.getElementById('togglePhishing').checked = value; updateRowStyle(field, value); updateSettingsRowStyle('settingsPhishingRow', value); }
+        if (field === 'ai_threat_detection') { document.getElementById('toggleDGA').checked = value; updateRowStyle(field, value); updateSettingsRowStyle('settingsDGARow', value); }
+        if (field === 'crypto_jacking_protection') { document.getElementById('toggleCrypto').checked = value; updateRowStyle(field, value); updateSettingsRowStyle('settingsCryptoRow', value); }
+        if (field === 'suspect_tld_blocking') { document.getElementById('toggleTLD').checked = value; updateRowStyle(field, value); updateSettingsRowStyle('settingsTLDRow', value); }
+        if (field === 'storage_region') document.getElementById('storageRegion').value = value;
+        showToast('Setting updated');
+    } catch(e) { console.error(e); showToast('Failed to update', true); }
+}
+
+function updateSettingsRowStyle(rowId, value) {
+    const row = document.getElementById(rowId);
+    if (row) {
+        row.classList.toggle('blocked', value);
+        row.classList.toggle('allowed', !value);
+    }
+}
+
+async function onStorageRegionChange(region) {
+    try {
+        await api('/settings', { method: 'PATCH', body: JSON.stringify({storage_region: region}) });
+        const el = document.getElementById('settingsToggleRegion');
+        if (el) el.value = region;
+        showToast(`Storage region: ${region === 'us' ? 'United States' : region === 'eu' ? 'European Union' : 'Switzerland'}`);
+    } catch(e) { console.error(e); showToast('Failed to update region', true); }
+}
+
+async function onGDPRToggle(enabled) {
+    try {
+        await api('/settings', { method: 'PATCH', body: JSON.stringify({log_retention_days: enabled ? 30 : 7}) });
+        document.getElementById('logRetentionSelect').value = enabled ? '30' : '7';
+        showToast(enabled ? 'GDPR auto-delete enabled (30 day retention)' : 'GDPR auto-delete disabled (7 day retention)');
+    } catch(e) { console.error(e); showToast('Failed', true); }
+}
+
+
+// ===== Subscription =====
+async function loadSubscription() {
+    try {
+        const r = await fetch('/api/v1/user/subscription', { headers: authHeaders() });
+        if (r.status === 401) { doLogout(); return; }
+        const data = await r.json();
+        const sub = data.subscription || {};
+        const planName = data.plan || 'Free';
+        const status = sub.status || 'none';
+        const trialDays = data.trial_remaining_days || 0;
+        const periodEnd = sub.current_period_end || '-';
+
+        document.getElementById('subPlanName').textContent = planName;
+        const statusMap = { 'trialing': 'Trial', 'active': 'Active', 'canceled': 'Canceled', 'past_due': 'Past Due', 'none': 'None' };
+        document.getElementById('subStatus').textContent = statusMap[status] || status;
+        document.getElementById('subTrialDays').textContent = trialDays > 0 ? trialDays + ' days' : '-';
+        document.getElementById('subPeriodEnd').textContent = periodEnd !== '-' ? new Date(periodEnd).toLocaleDateString() : '-';
+
+        // Load plan comparison
+        const pr = await fetch('/api/v1/stripe/plans');
+        const pdata = await pr.json();
+        const plans = pdata.plans || {};
+        const planIds = ['pro'];
+        document.getElementById('subPlansList').innerHTML = planIds.map(id => {
+            const p = plans[id];
+            if (!p) return '';
+            const features = p.features || [];
+            return '<div style="flex:1;min-width:200px;border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center;"'>
+                + '<div style="font-weight:700;font-size:1rem;">' + p.name + '</div>'
+                + '<div style="font-size:0.78rem;color:var(--muted);margin:4px 0;">' + (p.description || '') + '</div>'
+                + '<div style="font-size:1.4rem;font-weight:700;color:var(--primary);margin:8px 0;">¥' + (p.price_monthly/100).toFixed(2) + '<span style="font-size:0.78rem;color:var(--muted);font-weight:400;">/月</span></div>'
+                + '<ul style="text-align:left;font-size:0.82rem;color:var(--muted);padding-left:16px;margin:8px 0;">'
+                + features.map(f => '<li style="padding:2px 0;">' + f + '</li>').join('')
+                + '</ul>'
+                + '<a href="/pricing" style="display:inline-block;padding:8px 20px;background:var(--primary);color:#fff;border-radius:6px;text-decoration:none;font-size:0.85rem;">升级</a>'
+                + '</div>';
+        }).join('');
+    } catch (e) { console.error('loadSubscription error:', e); }
+}
+// ===== Settings =====
+async function loadSettings() {
+    try {
+        const data = await api('/parental-control');
+        document.getElementById('settingsProfileId').textContent = data.profile_id || '-';
+        document.getElementById('settingsToggleSafeSearch').checked = data.safe_search || false;
+        document.getElementById('settingsToggleYoutube').checked = data.youtube_restricted || false;
+        document.getElementById('settingsToggleBypass').checked = data.bypass_prevention || false;
+        document.getElementById('settingsTogglePhishing').checked = data.phishing_protection || false;
+        document.getElementById('settingsToggleDGA').checked = data.ai_threat_detection || false;
+        document.getElementById('settingsToggleCrypto').checked = data.crypto_jacking_protection || false;
+        document.getElementById('settingsToggleTLD').checked = data.suspect_tld_blocking || false;
+        document.getElementById('settingsToggleRegion').value = data.storage_region || 'us';
+        document.getElementById('settingsCategories').textContent = (data.blocked_categories || []).join(', ') || 'None';
+        document.getElementById('settingsMode').textContent = data.mode || '-';
+        updateSettingsRowStyle('settingsPhishingRow', data.phishing_protection || false);
+        updateSettingsRowStyle('settingsDGARow', data.ai_threat_detection || false);
+        updateSettingsRowStyle('settingsCryptoRow', data.crypto_jacking_protection || false);
+        updateSettingsRowStyle('settingsTLDRow', data.suspect_tld_blocking || false);
+    } catch (e) { console.error(e); }
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
