@@ -22,6 +22,8 @@ import androidx.navigation.compose.rememberNavController
 import com.dnsway.app.ui.screens.*
 import com.dnsway.app.ui.theme.DnswayTheme
 import com.dnsway.app.util.PinManager
+import com.dnsway.app.vpn.LocalDnsVpnService
+import com.dnsway.app.vpn.VpnConsent
 
 sealed class BottomNavItem(val route: String, val label: String, val icon: ImageVector) {
     data object Home : BottomNavItem("home", "首页", Icons.Default.Home)
@@ -35,6 +37,17 @@ class MainActivity : ComponentActivity() {
         setContent {
             DnswayTheme {
                 MainScreen()
+            }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Silent auto-start on subsequent launches when consent already given
+        if (!LocalDnsVpnService.isRunning && VpnConsent.isConsented(this)) {
+            val intent = LocalDnsVpnService.prepare(this)
+            if (intent == null) {
+                LocalDnsVpnService.start(this)
             }
         }
     }
